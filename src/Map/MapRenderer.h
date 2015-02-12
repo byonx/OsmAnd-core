@@ -214,6 +214,10 @@ namespace OsmAnd
         virtual bool setup(const MapRendererSetupOptions& setupOptions);
 
         // General:
+          enum : unsigned int {
+            MaxMissingDataZoomShift = 5,
+        };
+
 
         // Configuration-related:
         virtual std::shared_ptr<MapRendererConfiguration> getConfiguration() const;
