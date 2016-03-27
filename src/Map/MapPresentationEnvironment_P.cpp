@@ -10,7 +10,6 @@
 #include <SkStream.h>
 #include "restore_internal_warnings.h"
 
-#include "UnresolvedMapStyle_P.h"
 #include "MapStyleEvaluator.h"
 #include "MapStyleEvaluationResult.h"
 #include "MapStyleValueDefinition.h"
@@ -34,42 +33,42 @@ OsmAnd::MapPresentationEnvironment_P::~MapPresentationEnvironment_P()
 
 void OsmAnd::MapPresentationEnvironment_P::initialize()
 {
-    _defaultBackgroundColorAttribute = owner->resolvedStyle->getAttribute(QLatin1String("defaultColor"));
+    _defaultBackgroundColorAttribute = owner->mapStyle->getAttribute(QLatin1String("defaultColor"));
     _defaultBackgroundColor = ColorRGB(0xf1, 0xee, 0xe8);
 
-    _shadowOptionsAttribute = owner->resolvedStyle->getAttribute(QLatin1String("shadowRendering"));
+    _shadowOptionsAttribute = owner->mapStyle->getAttribute(QLatin1String("shadowRendering"));
     _shadowMode = ShadowMode::NoShadow;
     _shadowColor = ColorRGB(0x96, 0x96, 0x96);
 
-    _polygonMinSizeToDisplayAttribute = owner->resolvedStyle->getAttribute(QLatin1String("polygonMinSizeToDisplay"));
+    _polygonMinSizeToDisplayAttribute = owner->mapStyle->getAttribute(QLatin1String("polygonMinSizeToDisplay"));
     _polygonMinSizeToDisplay = 0.0;
 
-    _roadDensityZoomTileAttribute = owner->resolvedStyle->getAttribute(QLatin1String("roadDensityZoomTile"));
+    _roadDensityZoomTileAttribute = owner->mapStyle->getAttribute(QLatin1String("roadDensityZoomTile"));
     _roadDensityZoomTile = 0;
 
-    _roadsDensityLimitPerTileAttribute = owner->resolvedStyle->getAttribute(QLatin1String("roadsDensityLimitPerTile"));
+    _roadsDensityLimitPerTileAttribute = owner->mapStyle->getAttribute(QLatin1String("roadsDensityLimitPerTile"));
     _roadsDensityLimitPerTile = 0;
 
-    _defaultSymbolPathSpacingAttribute = owner->resolvedStyle->getAttribute(QLatin1String("defaultSymbolPathSpacing"));
+    _defaultSymbolPathSpacingAttribute = owner->mapStyle->getAttribute(QLatin1String("defaultSymbolPathSpacing"));
     _defaultSymbolPathSpacing = 0.0f;
 
-    _defaultBlockPathSpacingAttribute = owner->resolvedStyle->getAttribute(QLatin1String("defaultBlockPathSpacing"));
+    _defaultBlockPathSpacingAttribute = owner->mapStyle->getAttribute(QLatin1String("defaultBlockPathSpacing"));
     _defaultBlockPathSpacing = 0.0f;
 
-    _globalPathPaddingAttribute = owner->resolvedStyle->getAttribute(QLatin1String("globalPathPadding"));
+    _globalPathPaddingAttribute = owner->mapStyle->getAttribute(QLatin1String("globalPathPadding"));
     _globalPathPadding = 0.0f;
 
     _desiredStubsStyle = MapStubStyle::Unspecified;
 }
 
-QHash< OsmAnd::ResolvedMapStyle::ValueDefinitionId, OsmAnd::MapStyleConstantValue > OsmAnd::MapPresentationEnvironment_P::getSettings() const
+QHash< OsmAnd::IMapStyle::ValueDefinitionId, OsmAnd::MapStyleConstantValue > OsmAnd::MapPresentationEnvironment_P::getSettings() const
 {
     QMutexLocker scopedLocker(&_settingsChangeMutex);
 
     return detachedOf(_settings);
 }
 
-void OsmAnd::MapPresentationEnvironment_P::setSettings(const QHash< OsmAnd::ResolvedMapStyle::ValueDefinitionId, MapStyleConstantValue >& newSettings)
+void OsmAnd::MapPresentationEnvironment_P::setSettings(const QHash< OsmAnd::IMapStyle::ValueDefinitionId, MapStyleConstantValue >& newSettings)
 {
     QMutexLocker scopedLocker(&_settingsChangeMutex);
 
@@ -78,7 +77,7 @@ void OsmAnd::MapPresentationEnvironment_P::setSettings(const QHash< OsmAnd::Reso
 
 void OsmAnd::MapPresentationEnvironment_P::setSettings(const QHash< QString, QString >& newSettings)
 {
-    QHash< ResolvedMapStyle::ValueDefinitionId, MapStyleConstantValue > resolvedSettings;
+    QHash< IMapStyle::ValueDefinitionId, MapStyleConstantValue > resolvedSettings;
     resolvedSettings.reserve(newSettings.size());
 
     for (const auto& itSetting : rangeOf(newSettings))
@@ -87,8 +86,8 @@ void OsmAnd::MapPresentationEnvironment_P::setSettings(const QHash< QString, QSt
         const auto& value = itSetting.value();
 
         // Resolve input-value definition by name
-        const auto valueDefId = owner->resolvedStyle->getValueDefinitionIdByName(name);
-        const auto valueDef = owner->resolvedStyle->getValueDefinitionById(valueDefId);
+        const auto valueDefId = owner->mapStyle->getValueDefinitionIdByName(name);
+        const auto& valueDef = owner->mapStyle->getValueDefinitionById(valueDefId);
         if (!valueDef || valueDef->valueClass != MapStyleValueDefinition::Class::Input)
         {
             LogPrintf(LogSeverityLevel::Warning,
@@ -100,7 +99,7 @@ void OsmAnd::MapPresentationEnvironment_P::setSettings(const QHash< QString, QSt
 
         // Parse value
         MapStyleConstantValue parsedValue;
-        if (!owner->resolvedStyle->parseValue(value, valueDef, parsedValue))
+        if (!owner->mapStyle->parseValue(value, valueDef, parsedValue))
         {
             LogPrintf(LogSeverityLevel::Warning,
                 "Setting of '%s' to '%s' impossible: failed to parse value",
@@ -132,7 +131,7 @@ void OsmAnd::MapPresentationEnvironment_P::applyTo(MapStyleEvaluator& evaluator)
         const auto& valueDefId = settingEntry.key();
         const auto& settingValue = settingEntry.value();
 
-        const auto valueDef = owner->resolvedStyle->getValueDefinitionById(valueDefId);
+        const auto& valueDef = owner->mapStyle->getValueDefinitionById(valueDefId);
         if (!valueDef)
             continue;
 
@@ -290,11 +289,11 @@ OsmAnd::ColorARGB OsmAnd::MapPresentationEnvironment_P::getDefaultBackgroundColo
 
     if (_defaultBackgroundColorAttribute)
     {
-        MapStyleEvaluator evaluator(owner->resolvedStyle, owner->displayDensityFactor * owner->mapScaleFactor);
+        MapStyleEvaluator evaluator(owner->mapStyle, owner->displayDensityFactor * owner->mapScaleFactor);
         applyTo(evaluator);
         evaluator.setIntegerValue(owner->styleBuiltinValueDefs->id_INPUT_MINZOOM, zoom);
 
-        MapStyleEvaluationResult evalResult;
+        MapStyleEvaluationResult evalResult(owner->mapStyle->getValueDefinitionsCount());
         if (evaluator.evaluate(_defaultBackgroundColorAttribute, &evalResult))
             evalResult.getIntegerValue(owner->styleBuiltinValueDefs->id_OUTPUT_ATTR_COLOR_VALUE, result.argb);
     }
@@ -310,11 +309,11 @@ void OsmAnd::MapPresentationEnvironment_P::obtainShadowOptions(const ZoomLevel z
 
     if (_shadowOptionsAttribute)
     {
-        MapStyleEvaluator evaluator(owner->resolvedStyle, owner->displayDensityFactor * owner->mapScaleFactor);
+        MapStyleEvaluator evaluator(owner->mapStyle, owner->displayDensityFactor * owner->mapScaleFactor);
         applyTo(evaluator);
         evaluator.setIntegerValue(owner->styleBuiltinValueDefs->id_INPUT_MINZOOM, zoom);
 
-        MapStyleEvaluationResult evalResult;
+        MapStyleEvaluationResult evalResult(owner->mapStyle->getValueDefinitionsCount());
         if (evaluator.evaluate(_shadowOptionsAttribute, &evalResult))
         {
             int modeValue = 0;
@@ -333,11 +332,11 @@ double OsmAnd::MapPresentationEnvironment_P::getPolygonAreaMinimalThreshold(cons
 
     if (_polygonMinSizeToDisplayAttribute)
     {
-        MapStyleEvaluator evaluator(owner->resolvedStyle, owner->displayDensityFactor * owner->mapScaleFactor);
+        MapStyleEvaluator evaluator(owner->mapStyle, owner->displayDensityFactor * owner->mapScaleFactor);
         applyTo(evaluator);
         evaluator.setIntegerValue(owner->styleBuiltinValueDefs->id_INPUT_MINZOOM, zoom);
 
-        MapStyleEvaluationResult evalResult;
+        MapStyleEvaluationResult evalResult(owner->mapStyle->getValueDefinitionsCount());
         if (evaluator.evaluate(_polygonMinSizeToDisplayAttribute, &evalResult))
         {
             int polygonMinSizeToDisplay;
@@ -355,11 +354,11 @@ unsigned int OsmAnd::MapPresentationEnvironment_P::getRoadDensityZoomTile(const 
 
     if (_roadDensityZoomTileAttribute)
     {
-        MapStyleEvaluator evaluator(owner->resolvedStyle, owner->displayDensityFactor * owner->mapScaleFactor);
+        MapStyleEvaluator evaluator(owner->mapStyle, owner->displayDensityFactor * owner->mapScaleFactor);
         applyTo(evaluator);
         evaluator.setIntegerValue(owner->styleBuiltinValueDefs->id_INPUT_MINZOOM, zoom);
 
-        MapStyleEvaluationResult evalResult;
+        MapStyleEvaluationResult evalResult(owner->mapStyle->getValueDefinitionsCount());
         if (evaluator.evaluate(_roadDensityZoomTileAttribute, &evalResult))
             evalResult.getIntegerValue(owner->styleBuiltinValueDefs->id_OUTPUT_ATTR_INT_VALUE, result);
     }
@@ -373,11 +372,11 @@ unsigned int OsmAnd::MapPresentationEnvironment_P::getRoadsDensityLimitPerTile(c
 
     if (_roadsDensityLimitPerTileAttribute)
     {
-        MapStyleEvaluator evaluator(owner->resolvedStyle, owner->displayDensityFactor * owner->mapScaleFactor);
+        MapStyleEvaluator evaluator(owner->mapStyle, owner->displayDensityFactor * owner->mapScaleFactor);
         applyTo(evaluator);
         evaluator.setIntegerValue(owner->styleBuiltinValueDefs->id_INPUT_MINZOOM, zoom);
 
-        MapStyleEvaluationResult evalResult;
+        MapStyleEvaluationResult evalResult(owner->mapStyle->getValueDefinitionsCount());
         if (evaluator.evaluate(_roadsDensityLimitPerTileAttribute, &evalResult))
             evalResult.getIntegerValue(owner->styleBuiltinValueDefs->id_OUTPUT_ATTR_INT_VALUE, result);
     }
@@ -391,10 +390,10 @@ float OsmAnd::MapPresentationEnvironment_P::getDefaultSymbolPathSpacing() const
 
     if (_defaultSymbolPathSpacingAttribute)
     {
-        MapStyleEvaluator evaluator(owner->resolvedStyle, owner->displayDensityFactor * owner->symbolsScaleFactor);
+        MapStyleEvaluator evaluator(owner->mapStyle, owner->displayDensityFactor * owner->symbolsScaleFactor);
         applyTo(evaluator);
 
-        MapStyleEvaluationResult evalResult;
+        MapStyleEvaluationResult evalResult(owner->mapStyle->getValueDefinitionsCount());
         if (evaluator.evaluate(_defaultSymbolPathSpacingAttribute, &evalResult))
         {
             float value = 0.0f;
@@ -412,10 +411,10 @@ float OsmAnd::MapPresentationEnvironment_P::getDefaultBlockPathSpacing() const
 
     if (_defaultBlockPathSpacingAttribute)
     {
-        MapStyleEvaluator evaluator(owner->resolvedStyle, owner->displayDensityFactor * owner->symbolsScaleFactor);
+        MapStyleEvaluator evaluator(owner->mapStyle, owner->displayDensityFactor * owner->symbolsScaleFactor);
         applyTo(evaluator);
 
-        MapStyleEvaluationResult evalResult;
+        MapStyleEvaluationResult evalResult(owner->mapStyle->getValueDefinitionsCount());
         if (evaluator.evaluate(_defaultBlockPathSpacingAttribute, &evalResult))
         {
             float value = 0.0f;
@@ -433,10 +432,10 @@ float OsmAnd::MapPresentationEnvironment_P::getGlobalPathPadding() const
 
     if (_globalPathPaddingAttribute)
     {
-        MapStyleEvaluator evaluator(owner->resolvedStyle, owner->displayDensityFactor * owner->symbolsScaleFactor);
+        MapStyleEvaluator evaluator(owner->mapStyle, owner->displayDensityFactor * owner->symbolsScaleFactor);
         applyTo(evaluator);
 
-        MapStyleEvaluationResult evalResult;
+        MapStyleEvaluationResult evalResult(owner->mapStyle->getValueDefinitionsCount());
         if (evaluator.evaluate(_globalPathPaddingAttribute, &evalResult))
         {
             float value = 0.0f;

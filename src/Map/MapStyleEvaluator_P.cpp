@@ -18,6 +18,7 @@
 OsmAnd::MapStyleEvaluator_P::MapStyleEvaluator_P(MapStyleEvaluator* owner_)
     : _builtinValueDefs(MapStyleBuiltinValueDefinitions::get())
     , owner(owner_)
+    , intermediateEvaluationResultAllocator(std::bind(&MapStyleEvaluator_P::allocateIntermediateEvaluationResult, this))
 {
 }
 
@@ -25,132 +26,80 @@ OsmAnd::MapStyleEvaluator_P::~MapStyleEvaluator_P()
 {
 }
 
-void OsmAnd::MapStyleEvaluator_P::setBooleanValue(const int valueDefId, const bool value)
+void OsmAnd::MapStyleEvaluator_P::prepare()
 {
-    auto& entry = _inputValues[valueDefId];
+    const auto valueDefinitionsCount = owner->mapStyle->getValueDefinitionsCount();
 
-    entry.asInt = value ? 1 : 0;
+    _inputValues.reset(new ArrayMap<InputValue>(valueDefinitionsCount));
+    _inputValuesShadow.reset(new ArrayMap<InputValue>(valueDefinitionsCount));
+    _intermediateEvaluationResult.reset(new ArrayMap<IMapStyle::Value>(valueDefinitionsCount));
+    _constantIntermediateEvaluationResult.reset(new ArrayMap<IMapStyle::Value>(valueDefinitionsCount));
 }
 
-void OsmAnd::MapStyleEvaluator_P::setIntegerValue(const int valueDefId, const int value)
+OsmAnd::ArrayMap<OsmAnd::IMapStyle::Value>* OsmAnd::MapStyleEvaluator_P::allocateIntermediateEvaluationResult()
 {
-    auto& entry = _inputValues[valueDefId];
-
-    entry.asInt = value;
-}
-
-void OsmAnd::MapStyleEvaluator_P::setIntegerValue(const int valueDefId, const unsigned int value)
-{
-    auto& entry = _inputValues[valueDefId];
-
-    entry.asUInt = value;
-}
-
-void OsmAnd::MapStyleEvaluator_P::setFloatValue(const int valueDefId, const float value)
-{
-    auto& entry = _inputValues[valueDefId];
-
-    entry.asFloat = value;
-}
-
-void OsmAnd::MapStyleEvaluator_P::setStringValue(const int valueDefId, const QString& value)
-{
-    MapStyleConstantValue parsedValue;
-    const auto ok = owner->resolvedStyle->parseValue(value, valueDefId, parsedValue);
-    if (!ok)
-    {
-        //LogPrintf(LogSeverityLevel::Warning,
-        //    "Map style input string '%s' was not resolved in lookup table",
-        //    qPrintable(value));
-        _inputValues[valueDefId].asUInt = std::numeric_limits<uint32_t>::max();
-        return;
-    }
-
-    auto& entry = _inputValues[valueDefId];
-    entry.asUInt = parsedValue.asSimple.asUInt;
+    return new ArrayMap<IMapStyle::Value>(owner->mapStyle->getValueDefinitionsCount());
 }
 
 OsmAnd::MapStyleConstantValue OsmAnd::MapStyleEvaluator_P::evaluateConstantValue(
     const MapObject* const mapObject,
     const MapStyleValueDataType dataType,
-    const ResolvedMapStyle::ResolvedValue& resolvedValue,
-    const InputValuesDictionary& inputValues) const
+    const IMapStyle::Value& resolvedValue,
+    const std::shared_ptr<const InputValues>& inputValues,
+    OnDemand<IntermediateEvaluationResult>& intermediateEvaluationResult) const
 {
-    if (resolvedValue.isDynamic)
+    if (!resolvedValue.isDynamic)
+        return resolvedValue.asConstantValue;
+
+    bool wasDisabled = false;
+    intermediateEvaluationResult->clear();
+    OnDemand<IntermediateEvaluationResult> innerConstantEvaluationResult(intermediateEvaluationResultAllocator);
+    evaluate(
+        mapObject,
+        resolvedValue.asDynamicValue.attribute->getRootNodeRef(),
+        inputValues,
+        wasDisabled,
+        intermediateEvaluationResult.get(),
+        innerConstantEvaluationResult);
+
+    IMapStyle::Value evaluatedValue;
+    switch (dataType)
     {
-        bool wasDisabled = false;
-        IntermediateEvaluationResult tempEvaluationResult;
-        evaluate(
-            mapObject,
-            resolvedValue.asDynamicValue.attribute->rootNode,
-            inputValues,
-            wasDisabled,
-            &tempEvaluationResult);
-
-        ResolvedMapStyle::ResolvedValue evaluatedValue;
-        switch (dataType)
-        {
-            case MapStyleValueDataType::Boolean:
-            {
-                const auto citOutputValue = tempEvaluationResult.constFind(_builtinValueDefs->id_OUTPUT_ATTR_BOOL_VALUE);
-                if (citOutputValue != tempEvaluationResult.cend())
-                    evaluatedValue = *citOutputValue;
-                break;
-            }
-
-            case MapStyleValueDataType::Integer:
-            {
-                const auto citOutputValue = tempEvaluationResult.constFind(_builtinValueDefs->id_OUTPUT_ATTR_INT_VALUE);
-                if (citOutputValue != tempEvaluationResult.cend())
-                    evaluatedValue = *citOutputValue;
-                break;
-            }
-
-            case MapStyleValueDataType::Float:
-            {
-                const auto citOutputValue = tempEvaluationResult.constFind(_builtinValueDefs->id_OUTPUT_ATTR_FLOAT_VALUE);
-                if (citOutputValue != tempEvaluationResult.cend())
-                    evaluatedValue = *citOutputValue;
-                break;
-            }
-
-            case MapStyleValueDataType::String:
-            {
-                const auto citOutputValue = tempEvaluationResult.constFind(_builtinValueDefs->id_OUTPUT_ATTR_STRING_VALUE);
-                if (citOutputValue != tempEvaluationResult.cend())
-                    evaluatedValue = *citOutputValue;
-                break;
-            }
-
-            case MapStyleValueDataType::Color:
-            {
-                const auto citOutputValue = tempEvaluationResult.constFind(_builtinValueDefs->id_OUTPUT_ATTR_COLOR_VALUE);
-                if (citOutputValue != tempEvaluationResult.cend())
-                    evaluatedValue = *citOutputValue;
-                break;
-            }
-        }
-
-        if (evaluatedValue.isDynamic)
-        {
-            return evaluateConstantValue(
-                mapObject,
-                dataType,
-                evaluatedValue,
-                inputValues);
-        }
-        return evaluatedValue.asConstantValue;
+        case MapStyleValueDataType::Boolean:
+            intermediateEvaluationResult->get(_builtinValueDefs->id_OUTPUT_ATTR_BOOL_VALUE, evaluatedValue);
+            break;
+        case MapStyleValueDataType::Integer:
+            intermediateEvaluationResult->get(_builtinValueDefs->id_OUTPUT_ATTR_INT_VALUE, evaluatedValue);
+            break;
+        case MapStyleValueDataType::Float:
+            intermediateEvaluationResult->get(_builtinValueDefs->id_OUTPUT_ATTR_FLOAT_VALUE, evaluatedValue);
+            break;
+        case MapStyleValueDataType::String:
+            intermediateEvaluationResult->get(_builtinValueDefs->id_OUTPUT_ATTR_STRING_VALUE, evaluatedValue);
+            break;
+        case MapStyleValueDataType::Color:
+            intermediateEvaluationResult->get(_builtinValueDefs->id_OUTPUT_ATTR_COLOR_VALUE, evaluatedValue);
+            break;
     }
 
-    return resolvedValue.asConstantValue;
+    if (!evaluatedValue.isDynamic)
+        return evaluatedValue.asConstantValue;
+    
+    return evaluateConstantValue(
+        mapObject,
+        dataType,
+        evaluatedValue,
+        inputValues,
+        intermediateEvaluationResult);
 }
 
 bool OsmAnd::MapStyleEvaluator_P::evaluate(
     const std::shared_ptr<const MapObject>& mapObject,
-    const QHash< TagValueId, std::shared_ptr<const ResolvedMapStyle::Rule> >& ruleset,
+    const QHash< TagValueId, std::shared_ptr<const IMapStyle::IRule> >& ruleset,
     const ResolvedMapStyle::StringId tagStringId,
     const ResolvedMapStyle::StringId valueStringId,
-    MapStyleEvaluationResult* const outResultStorage) const
+    MapStyleEvaluationResult* const outResultStorage,
+    OnDemand<IntermediateEvaluationResult>& constantEvaluationResult) const
 {
     const auto ruleId = TagValueId::compose(tagStringId, valueStringId);
     const auto citRule = ruleset.constFind(ruleId);
@@ -158,21 +107,25 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
         return false;
     const auto& rule = *citRule;
 
-    // Create copy of input values to change "tag" and "value" attributes
-    auto inputValues = detachedOf(_inputValues);
-    inputValues[_builtinValueDefs->id_INPUT_TAG].asUInt = tagStringId;
-    inputValues[_builtinValueDefs->id_INPUT_VALUE].asUInt = valueStringId;
+    InputValue inputTag;
+    inputTag.asUInt = tagStringId;
+    _inputValuesShadow->set(_builtinValueDefs->id_INPUT_TAG, inputTag);
 
-    IntermediateEvaluationResult intermediateEvaluationResult;
-    IntermediateEvaluationResult* const pIntermediateEvaluationResult = outResultStorage ? &intermediateEvaluationResult : nullptr;
+    InputValue inputValue;
+    inputValue.asUInt = valueStringId;
+    _inputValuesShadow->set(_builtinValueDefs->id_INPUT_VALUE, inputValue);
+
+    if (outResultStorage)
+        _intermediateEvaluationResult->clear();
 
     bool wasDisabled = false;
     const auto success = evaluate(
         mapObject.get(),
-        rule->rootNode,
-        inputValues,
+        rule->getRootNodeRef(),
+        _inputValuesShadow,
         wasDisabled,
-        pIntermediateEvaluationResult);
+        _intermediateEvaluationResult.get(),
+        constantEvaluationResult);
     if (!success || wasDisabled)
         return false;
 
@@ -180,9 +133,10 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
     {
         postprocessEvaluationResult(
             mapObject.get(),
-            inputValues,
-            intermediateEvaluationResult,
-            *outResultStorage);
+            _inputValuesShadow,
+            *_intermediateEvaluationResult,
+            *outResultStorage,
+            constantEvaluationResult);
     }
 
     return true;
@@ -190,18 +144,18 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
 
 bool OsmAnd::MapStyleEvaluator_P::evaluate(
     const MapObject* const mapObject,
-    const std::shared_ptr<const ResolvedMapStyle::RuleNode>& ruleNode,
-    const InputValuesDictionary& inputValues,
+    const std::shared_ptr<const IMapStyle::IRuleNode>& ruleNode,
+    const std::shared_ptr<const InputValues>& inputValues,
     bool& outDisabled,
-    IntermediateEvaluationResult* const outResultStorage) const
+    IntermediateEvaluationResult* const outResultStorage,
+    OnDemand<IntermediateEvaluationResult>& constantEvaluationResult) const
 {
-    const auto citInputValuesEnd = inputValues.cend();
-
     // Check all values of a rule until all are checked.
-    for (const auto& ruleValueEntry : rangeOf(constOf(ruleNode->values)))
+    const auto& ruleNodeValues = ruleNode->getValuesRef();
+    for (const auto& ruleValueEntry : rangeOf(constOf(ruleNodeValues)))
     {
         const auto valueDefId = ruleValueEntry.key();
-        const auto& valueDef = owner->resolvedStyle->getValueDefinitionById(valueDefId);
+        const auto& valueDef = owner->mapStyle->getValueDefinitionRefById(valueDefId);
 
         // Test only input values
         if (valueDef->valueClass != MapStyleValueDefinition::Class::Input)
@@ -211,12 +165,11 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
             mapObject,
             valueDef->dataType,
             ruleValueEntry.value(),
-            inputValues);
+            inputValues,
+            constantEvaluationResult);
 
-        const auto citInputValue = inputValues.constFind(valueDefId);
         InputValue inputValue;
-        if (citInputValue != citInputValuesEnd)
-            inputValue = *citInputValue;
+        inputValues->get(valueDefId, inputValue);
 
         bool evaluationResult = false;
         if (valueDefId == _builtinValueDefs->id_INPUT_MINZOOM)
@@ -236,16 +189,16 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
             else
             {
                 assert(!constantRuleValue.isComplex);
-                const auto valueString = owner->resolvedStyle->getStringById(constantRuleValue.asSimple.asUInt);
+                const auto valueString = owner->mapStyle->getStringById(constantRuleValue.asSimple.asUInt);
                 auto equalSignIdx = valueString.indexOf(QLatin1Char('='));
                 if (equalSignIdx >= 0)
                 {
-                    const auto& tag = valueString.mid(0, equalSignIdx);
-                    const auto& value = valueString.mid(equalSignIdx + 1);
-                    evaluationResult = mapObject->containsTypeSlow(tag, value, true);
+                    const auto& tagRef = valueString.midRef(0, equalSignIdx);
+                    const auto& valueRef = valueString.midRef(equalSignIdx + 1);
+                    evaluationResult = mapObject->containsAttribute(tagRef, valueRef, true);
                 }
                 else
-                    evaluationResult = mapObject->containsTagSlow(valueString, true);
+                    evaluationResult = mapObject->containsTag(valueString, true);
             }
         }
         else if (valueDefId == _builtinValueDefs->id_INPUT_TEST)
@@ -275,14 +228,15 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
     }
 
     // In case rule sets "disable", stop processing
-    const auto citDisabledValue = ruleNode->values.constFind(_builtinValueDefs->id_OUTPUT_DISABLE);
-    if (citDisabledValue != ruleNode->values.cend())
+    const auto citDisabledValue = ruleNodeValues.constFind(_builtinValueDefs->id_OUTPUT_DISABLE);
+    if (citDisabledValue != ruleNodeValues.cend())
     {
         const auto disableValue = evaluateConstantValue(
             mapObject,
             _builtinValueDefs->OUTPUT_DISABLE->dataType,
             *citDisabledValue,
-            inputValues);
+            inputValues,
+            constantEvaluationResult);
 
         assert(!disableValue.isComplex);
         if (disableValue.asSimple.asUInt != 0)
@@ -292,18 +246,20 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
         }
     }
 
-    if (outResultStorage && !ruleNode->isSwitch)
+    if (outResultStorage && !ruleNode->getIsSwitch())
         fillResultFromRuleNode(ruleNode, *outResultStorage, true);
 
     bool atLeastOneConditionalMatched = false;
-    for (const auto& oneOfConditionalSubnode : constOf(ruleNode->oneOfConditionalSubnodes))
+    const auto& oneOfConditionalSubnodes = ruleNode->getOneOfConditionalSubnodesRef();
+    for (const auto& oneOfConditionalSubnode : constOf(oneOfConditionalSubnodes))
     {
         const auto evaluationResult = evaluate(
             mapObject,
             oneOfConditionalSubnode,
             inputValues,
             outDisabled,
-            outResultStorage);
+            outResultStorage,
+            constantEvaluationResult);
 
         if (evaluationResult)
         {
@@ -311,17 +267,26 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
             break;
         }
     }
-    if (!atLeastOneConditionalMatched && ruleNode->isSwitch)
+    if (!atLeastOneConditionalMatched && ruleNode->getIsSwitch())
         return false;
 
-    if (outResultStorage && ruleNode->isSwitch)
+    if (outResultStorage && ruleNode->getIsSwitch())
     {
         // Fill values from <switch> keeping values previously set by <case>
         fillResultFromRuleNode(ruleNode, *outResultStorage, false);
     }
 
-    for (const auto& applySubnode : constOf(ruleNode->applySubnodes))
-        evaluate(mapObject, applySubnode, inputValues, outDisabled, outResultStorage);
+    const auto& applySubnodes = ruleNode->getApplySubnodesRef();
+    for (const auto& applySubnode : constOf(applySubnodes))
+    {
+        evaluate(
+            mapObject,
+            applySubnode,
+            inputValues,
+            outDisabled,
+            outResultStorage,
+            constantEvaluationResult);
+    }
 
     if (outDisabled)
         return false;
@@ -330,51 +295,53 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
 }
 
 void OsmAnd::MapStyleEvaluator_P::fillResultFromRuleNode(
-    const std::shared_ptr<const ResolvedMapStyle::RuleNode>& ruleNode,
+    const std::shared_ptr<const IMapStyle::IRuleNode>& ruleNode,
     IntermediateEvaluationResult& outResultStorage,
     const bool allowOverride) const
 {
-    for (const auto& ruleValueEntry : rangeOf(constOf(ruleNode->values)))
+    const auto& values = ruleNode->getValuesRef();
+    for (const auto& ruleValueEntry : rangeOf(constOf(values)))
     {
         const auto valueDefId = ruleValueEntry.key();
-        const auto& valueDef = owner->resolvedStyle->getValueDefinitionById(valueDefId);
+        const auto& valueDef = owner->mapStyle->getValueDefinitionRefById(valueDefId);
 
         // Skip all non-Output values
         if (valueDef->valueClass != MapStyleValueDefinition::Class::Output)
             continue;
 
         // If value already defined and override not allowed, do nothing
-        const auto itResultValue = outResultStorage.find(valueDefId);
-        if (itResultValue != outResultStorage.end() && !allowOverride)
+        if (outResultStorage.contains(valueDefId) && !allowOverride)
             continue;
         
         // Store result
-        if (itResultValue != outResultStorage.end())
-            *itResultValue = ruleValueEntry.value();
-        else
-            outResultStorage[valueDefId] = ruleValueEntry.value();
+        outResultStorage.set(valueDefId, ruleValueEntry.value());
     }
 }
 
 void OsmAnd::MapStyleEvaluator_P::postprocessEvaluationResult(
     const MapObject* const mapObject,
-    const InputValuesDictionary& inputValues,
+    const std::shared_ptr<const InputValues>& inputValues,
     const IntermediateEvaluationResult& intermediateResult,
-    MapStyleEvaluationResult& outResultStorage) const
+    MapStyleEvaluationResult& outResultStorage,
+    OnDemand<IntermediateEvaluationResult>& constantEvaluationResult) const
 {
-    for (const auto& intermediateResultEntry : rangeOf(constOf(intermediateResult)))
+    IMapStyle::Value value;
+    for (IntermediateEvaluationResult::KeyType idx = 0, count = intermediateResult.size(); idx < count; idx++)
     {
-        const auto valueDefId = intermediateResultEntry.key();
-        const auto& valueDef = owner->resolvedStyle->getValueDefinitionById(valueDefId);
+        if (!intermediateResult.get(idx, value))
+            continue;
+
+        const auto valueDefId = static_cast<IMapStyle::ValueDefinitionId>(idx);
+        const auto& valueDef = owner->mapStyle->getValueDefinitionRefById(valueDefId);
 
         const auto constantRuleValue = evaluateConstantValue(
             mapObject,
             valueDef->dataType,
-            intermediateResultEntry.value(),
-            inputValues);
+            value,
+            inputValues,
+            constantEvaluationResult);
 
-        auto& postprocessedValue = outResultStorage.values[valueDefId];
-
+        QVariant postprocessedValue;
         switch (valueDef->dataType)
         {
             case MapStyleValueDataType::Boolean:
@@ -394,14 +361,72 @@ void OsmAnd::MapStyleEvaluator_P::postprocessEvaluationResult(
             case MapStyleValueDataType::String:
                 assert(!constantRuleValue.isComplex);
                 // Save value of a string instead of it's id
-                postprocessedValue = owner->resolvedStyle->getStringById(constantRuleValue.asSimple.asUInt);
+                postprocessedValue = owner->mapStyle->getStringById(constantRuleValue.asSimple.asUInt);
                 break;
             case MapStyleValueDataType::Color:
                 assert(!constantRuleValue.isComplex);
                 postprocessedValue = constantRuleValue.asSimple.asUInt;
                 break;
         }
+
+        outResultStorage.setValue(valueDefId, postprocessedValue);
     }
+}
+
+void OsmAnd::MapStyleEvaluator_P::setBooleanValue(const int valueDefId, const bool value)
+{
+    InputValue valueEntry;
+    valueEntry.asInt = value ? 1 : 0;
+
+    _inputValues->set(valueDefId, valueEntry);
+    _inputValuesShadow->set(valueDefId, valueEntry);
+}
+
+void OsmAnd::MapStyleEvaluator_P::setIntegerValue(const int valueDefId, const int value)
+{
+    InputValue valueEntry;
+    valueEntry.asInt = value;
+
+    _inputValues->set(valueDefId, valueEntry);
+    _inputValuesShadow->set(valueDefId, valueEntry);
+}
+
+void OsmAnd::MapStyleEvaluator_P::setIntegerValue(const int valueDefId, const unsigned int value)
+{
+    InputValue valueEntry;
+    valueEntry.asUInt = value;
+
+    _inputValues->set(valueDefId, valueEntry);
+    _inputValuesShadow->set(valueDefId, valueEntry);
+}
+
+void OsmAnd::MapStyleEvaluator_P::setFloatValue(const int valueDefId, const float value)
+{
+    InputValue valueEntry;
+    valueEntry.asFloat = value;
+
+    _inputValues->set(valueDefId, valueEntry);
+    _inputValuesShadow->set(valueDefId, valueEntry);
+}
+
+void OsmAnd::MapStyleEvaluator_P::setStringValue(const int valueDefId, const QString& value)
+{
+    InputValue valueEntry;
+
+    MapStyleConstantValue parsedValue;
+    const auto ok = owner->mapStyle->parseValue(value, valueDefId, parsedValue);
+    if (!ok)
+    {
+        //LogPrintf(LogSeverityLevel::Warning,
+        //    "Map style input string '%s' was not resolved in lookup table",
+        //    qPrintable(value));
+        valueEntry.asUInt = std::numeric_limits<uint32_t>::max();
+    }
+    else
+        valueEntry.asUInt = parsedValue.asSimple.asUInt;
+
+    _inputValues->set(valueDefId, valueEntry);
+    _inputValuesShadow->set(valueDefId, valueEntry);
 }
 
 bool OsmAnd::MapStyleEvaluator_P::evaluate(
@@ -416,32 +441,33 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
     //}
     //////////////////////////////////////////////////////////////////////////
 
-    const auto& ruleset = owner->resolvedStyle->getRuleset(rulesetType);
+    const auto& ruleset = owner->mapStyle->getRuleset(rulesetType);
 
-    const auto citTagKey = _inputValues.constFind(_builtinValueDefs->id_INPUT_TAG);
-    const auto citValueKey = _inputValues.constFind(_builtinValueDefs->id_INPUT_VALUE);
-    const auto citEnd = _inputValues.cend();
+    _constantIntermediateEvaluationResult->clear();
+    OnDemand<IntermediateEvaluationResult> constantEvaluationResult(_constantIntermediateEvaluationResult);
 
-    if (citTagKey != citEnd && citValueKey != citEnd)
+    if (_inputValues->contains(_builtinValueDefs->id_INPUT_TAG) && _inputValues->contains(_builtinValueDefs->id_INPUT_VALUE))
     {
         const auto evaluationResult = evaluate(
             mapObject,
             ruleset,
-            citTagKey->asUInt,
-            citValueKey->asUInt,
-            outResultStorage);
+            _inputValues->getRef(_builtinValueDefs->id_INPUT_TAG)->asUInt,
+            _inputValues->getRef(_builtinValueDefs->id_INPUT_VALUE)->asUInt,
+            outResultStorage,
+            constantEvaluationResult);
         if (evaluationResult)
             return true;
     }
 
-    if (citTagKey != citEnd)
+    if (_inputValues->contains(_builtinValueDefs->id_INPUT_TAG))
     {
         const auto evaluationResult = evaluate(
             mapObject,
             ruleset,
-            citTagKey->asUInt,
+            _inputValues->getRef(_builtinValueDefs->id_INPUT_TAG)->asUInt,
             ResolvedMapStyle::EmptyStringId,
-            outResultStorage);
+            outResultStorage,
+            constantEvaluationResult);
         if (evaluationResult)
             return true;
     }
@@ -451,7 +477,8 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
         ruleset,
         ResolvedMapStyle::EmptyStringId,
         ResolvedMapStyle::EmptyStringId,
-        outResultStorage);
+        outResultStorage,
+        constantEvaluationResult);
     if (evaluationResult)
         return true;
 
@@ -459,19 +486,23 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
 }
 
 bool OsmAnd::MapStyleEvaluator_P::evaluate(
-    const std::shared_ptr<const ResolvedMapStyle::Attribute>& attribute,
+    const std::shared_ptr<const IMapStyle::IAttribute>& attribute,
     MapStyleEvaluationResult* const outResultStorage) const
 {
-    IntermediateEvaluationResult intermediateEvaluationResult;
-    IntermediateEvaluationResult* const pIntermediateEvaluationResult = outResultStorage ? &intermediateEvaluationResult : nullptr;
+    if (outResultStorage)
+        _intermediateEvaluationResult->clear();
+
+    _constantIntermediateEvaluationResult->clear();
+    OnDemand<IntermediateEvaluationResult> constantEvaluationResult(_constantIntermediateEvaluationResult);
 
     bool wasDisabled = false;
     const auto success = evaluate(
         nullptr,
-        attribute->rootNode,
+        attribute->getRootNodeRef(),
         _inputValues,
         wasDisabled,
-        pIntermediateEvaluationResult);
+        _intermediateEvaluationResult.get(),
+        constantEvaluationResult);
     if (!success || wasDisabled)
         return false;
 
@@ -480,8 +511,9 @@ bool OsmAnd::MapStyleEvaluator_P::evaluate(
         postprocessEvaluationResult(
             nullptr,
             _inputValues,
-            intermediateEvaluationResult,
-            *outResultStorage);
+            *_intermediateEvaluationResult,
+            *outResultStorage,
+            constantEvaluationResult);
     }
 
     return true;

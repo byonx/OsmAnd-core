@@ -15,11 +15,16 @@ OsmAnd::AmenitiesInAreaSearch::~AmenitiesInAreaSearch()
 void OsmAnd::AmenitiesInAreaSearch::performSearch(
     const ISearch::Criteria& criteria_,
     const NewResultEntryCallback newResultEntryCallback,
-    const IQueryController* const controller /*= nullptr*/) const
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/) const
 {
     const auto criteria = *dynamic_cast<const Criteria*>(&criteria_);
 
-    const auto dataInterface = obtainDataInterface(criteria, ObfDataTypesMask().set(ObfDataType::POI));
+    const auto dataInterface = obfsCollection->obtainDataInterface(
+        criteria.bbox31.getValuePtrOrNullptr(),
+        MinZoomLevel,
+        MaxZoomLevel,
+        ObfDataTypesMask().set(ObfDataType::POI),
+        criteria.sourceFilter);
 
     const ObfPoiSectionReader::VisitorFunction visitorFunction =
         [newResultEntryCallback, criteria_]
@@ -29,20 +34,21 @@ void OsmAnd::AmenitiesInAreaSearch::performSearch(
             resultEntry.amenity = amenity;
             newResultEntryCallback(criteria_, resultEntry);
 
-            return false;
+            return true;
         };
 
     dataInterface->loadAmenities(
         nullptr,
-        criteria.minZoomLevel,
-        criteria.maxZoomLevel,
         criteria.bbox31.getValuePtrOrNullptr(),
+        criteria.tileFilter,
+        criteria.zoomFilter,
         criteria.categoriesFilter.isEmpty() ? nullptr : &criteria.categoriesFilter,
         visitorFunction,
-        controller);
+        queryController);
 }
 
 OsmAnd::AmenitiesInAreaSearch::Criteria::Criteria()
+    : zoomFilter(InvalidZoomLevel)
 {
 }
 

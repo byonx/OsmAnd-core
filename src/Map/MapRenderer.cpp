@@ -443,7 +443,7 @@ bool OsmAnd::MapRenderer::prePrepareFrame()
     if (!_isRenderingInitialized)
         return false;
 
-    bool ok;
+    bool ok = true;
 
     // Update debug settings if needed
     const auto currentDebugSettingsInvalidatedCounter = _currentDebugSettingsInvalidatedCounter.fetchAndAddOrdered(0);
@@ -472,9 +472,7 @@ bool OsmAnd::MapRenderer::prePrepareFrame()
         if (!ok)
         {
             _currentConfigurationInvalidatedMask.fetchAndOrOrdered(currentConfigurationInvalidatedMask);
-
             invalidateFrame();
-
             return false;
         }
     }
@@ -492,7 +490,13 @@ bool OsmAnd::MapRenderer::prePrepareFrame()
     if (requestedStateUpdatedMask != 0)
     {
         // Process updating of providers
-        _resources->updateBindings(_currentState, requestedStateUpdatedMask);
+        ok = _resources->updateBindings(_currentState, requestedStateUpdatedMask);
+        if (!ok)
+        {
+            _requestedStateUpdatedMask.fetchAndOrOrdered(requestedStateUpdatedMask);
+            invalidateFrame();
+            return false;
+        }
     }
 
     // Update internal state, that is derived from current state and configuration
@@ -1071,7 +1075,15 @@ bool OsmAnd::MapRenderer::suspendSymbolsUpdate()
 
 bool OsmAnd::MapRenderer::resumeSymbolsUpdate()
 {
-    const auto prevCounter = _suspendSymbolsUpdateCounter.fetchAndAddOrdered(-1);
+    auto prevCounter = _suspendSymbolsUpdateCounter.loadAcquire();
+    while (prevCounter > 0)
+    {
+        if (_suspendSymbolsUpdateCounter.testAndSetOrdered(prevCounter, prevCounter - 1))
+            break;
+
+        prevCounter = _suspendSymbolsUpdateCounter.loadAcquire();
+    }
+
     if (prevCounter == 1)
         invalidateFrame();
 
@@ -1082,8 +1094,7 @@ OsmAnd::MapRendererState OsmAnd::MapRenderer::getState() const
 {
     QMutexLocker scopedLocker(&_requestedStateMutex);
 
-    const auto copy = _requestedState;
-    return copy;
+    return _requestedState;
 }
 
 bool OsmAnd::MapRenderer::isFrameInvalidated() const
@@ -1671,6 +1682,21 @@ void OsmAnd::MapRenderer::setDebugSettings(const std::shared_ptr<const MapRender
     _currentDebugSettingsInvalidatedCounter.fetchAndAddOrdered(1);
 
     invalidateFrame();
+}
+
+void OsmAnd::MapRenderer::setResourceWorkerThreadsLimit(const unsigned int limit)
+{
+    _resources->setResourceWorkerThreadsLimit(limit);
+}
+
+void OsmAnd::MapRenderer::resetResourceWorkerThreadsLimit()
+{
+    _resources->resetResourceWorkerThreadsLimit();
+}
+
+unsigned int OsmAnd::MapRenderer::getActiveResourceRequestsCount() const
+{
+    return static_cast<unsigned int>(_resources->_resourcesRequestTasksCounter.loadAcquire());
 }
 
 void OsmAnd::MapRenderer::dumpResourcesInfo() const

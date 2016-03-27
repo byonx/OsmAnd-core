@@ -2,12 +2,14 @@
 #include "ResourcesManager.h"
 
 #include "QtCommon.h"
+#include "ignore_warnings_on_external_includes.h"
 #include <QXmlStreamReader>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QTextStream>
 #include <QBuffer>
+#include "restore_internal_warnings.h"
 
 #include "OsmAndCore_private.h"
 #include "CoreResourcesEmbeddedBundle.h"
@@ -16,7 +18,6 @@
 #include "ObfDataInterface.h"
 #include "ResolvedMapStyle.h"
 #include "UnresolvedMapStyle.h"
-#include "MapStylesPresetsCollection.h"
 #include "OnlineTileSources.h"
 #include "QKeyValueIterator.h"
 #include "Logging.h"
@@ -29,7 +30,6 @@ OsmAnd::ResourcesManager_P::ResourcesManager_P(ResourcesManager* owner_)
     , _resourcesInRepositoryLoaded(false)
     , onlineTileSources(new OnlineTileSourcesProxy(this))
     , mapStylesCollection(new MapStylesCollectionProxy(this))
-    , mapStylesPresetsCollection(new MapStylesPresetsCollectionProxy(this))
     , obfsCollection(new ObfsCollectionProxy(this))
 {
     _fileSystemWatcher->moveToThread(gMainThread);
@@ -82,11 +82,15 @@ void OsmAnd::ResourcesManager_P::detachFromFileSystem()
 
 void OsmAnd::ResourcesManager_P::onDirectoryChanged(const QString& path)
 {
+    Q_UNUSED(path);
+
     rescanUnmanagedStoragePaths();
 }
 
 void OsmAnd::ResourcesManager_P::onFileChanged(const QString& path)
 {
+    Q_UNUSED(path);
+
     rescanUnmanagedStoragePaths();
 }
 
@@ -109,16 +113,6 @@ void OsmAnd::ResourcesManager_P::inflateBuiltInResources()
         ResourceType::MapStyle,
         std::shared_ptr<const Resource::Metadata>(new MapStyleMetadata(defaultMapStyle))));
     _builtinResources.insert(defaultMapStyleResource->id, defaultMapStyleResource);
-
-    // Built-in presets for "default" map style
-    const std::shared_ptr<MapStylesPresetsCollection> defaultMapStylesPresets(new MapStylesPresetsCollection());
-    defaultMapStylesPresets->loadFrom(getCoreResourcesProvider()->getResource(
-        QLatin1String("map/presets/default.map_styles_presets.xml")));
-    std::shared_ptr<const BuiltinResource> defaultMapStylesPresetsResource(new BuiltinResource(
-        QLatin1String("default.map_styles_presets.xml"),
-        ResourceType::MapStylesPresets,
-        std::shared_ptr<const Resource::Metadata>(new MapStylesPresetsMetadata(defaultMapStylesPresets))));
-    _builtinResources.insert(defaultMapStylesPresetsResource->id, defaultMapStylesPresetsResource);
 
     // Built-in online tile sources
     const std::shared_ptr<const BuiltinResource> defaultOnlineTileSourcesResource(new BuiltinResource(
@@ -265,321 +259,388 @@ bool OsmAnd::ResourcesManager_P::loadLocalResourcesFromPath(
     const bool isUnmanagedStorage,
     QHash< QString, std::shared_ptr<const LocalResource> >& outResult) const
 {
-    const QDir storageDir(storagePath);
-
-    // Find ResourceType::MapRegion -> "*.map.obf" files
     if (!isUnmanagedStorage)
     {
-        QFileInfoList obfFileInfos;
-        Utilities::findFiles(storageDir, QStringList() << QLatin1String("*.map.obf"), obfFileInfos, false);
-        for (const auto& obfFileInfo : constOf(obfFileInfos))
-        {
-            const auto filePath = obfFileInfo.absoluteFilePath();
-            
-            // Read information from OBF
-            const std::shared_ptr<const ObfFile> obfFile(new ObfFile(filePath));
-            if (!ObfReader(obfFile).obtainInfo())
-            {
-                LogPrintf(LogSeverityLevel::Warning, "Failed to open OBF '%s'", qPrintable(filePath));
-                continue;
-            }
+        // Find ResourceType::MapRegion -> "*.map.obf" files
+        loadLocalResourcesFromPath_Obf(
+            storagePath,
+            outResult,
+            QLatin1String("*.map.obf"),
+            ResourceType::MapRegion);
 
-            // Create local resource entry
-            const auto fileName = obfFileInfo.fileName();
-            const auto resourceId = fileName.toLower();
-            const auto pLocalResource = new InstalledResource(
-                resourceId,
-                ResourceType::MapRegion,
-                filePath,
-                obfFileInfo.size(),
-                obfFile->obfInfo->creationTimestamp);
-            pLocalResource->_metadata.reset(new ObfMetadata(obfFile));
-            std::shared_ptr<const LocalResource> localResource(pLocalResource);
-            outResult.insert(resourceId, qMove(localResource));
-        }
+        // Find ResourceType::RoadMapRegion -> "*.road.obf" files
+        loadLocalResourcesFromPath_Obf(
+            storagePath,
+            outResult,
+            QLatin1String("*.road.obf"),
+            ResourceType::RoadMapRegion);
+
+        // Find ResourceType::SrtmMapRegion -> "*.srtm.obf" files
+        loadLocalResourcesFromPath_Obf(
+            storagePath,
+            outResult,
+            QLatin1String("*.srtm.obf"),
+            ResourceType::SrtmMapRegion);
+
+        // Find ResourceType::WikiMapRegion -> "*.wiki.obf" files
+        loadLocalResourcesFromPath_Obf(
+            storagePath,
+            outResult,
+            QLatin1String("*.wiki.obf"),
+            ResourceType::WikiMapRegion);
+    }
+    else
+    {
+        // In unmanaged storage, "*.obf" files can contain anything
+        loadLocalResourcesFromPath_Obf(storagePath, outResult);
     }
 
-    // Find ResourceType::RoadMapRegion -> "*.road.obf" files
     if (!isUnmanagedStorage)
     {
-        QFileInfoList obfFileInfos;
-        Utilities::findFiles(storageDir, QStringList() << QLatin1String("*.road.obf"), obfFileInfos, false);
-        for (const auto& obfFileInfo : constOf(obfFileInfos))
-        {
-            const auto filePath = obfFileInfo.absoluteFilePath();
+        // Find ResourceType::HillshadeRegion -> "*.hillshade.sqlitedb" files
+        loadLocalResourcesFromPath_SQLiteDB(
+            storagePath,
+            outResult,
+            QLatin1String("*.hillshade.sqlitedb"),
+            ResourceType::HillshadeRegion);
 
-            // Read information from OBF
-            const std::shared_ptr<const ObfFile> obfFile(new ObfFile(filePath));
-            if (!ObfReader(obfFile).obtainInfo())
-            {
-                LogPrintf(LogSeverityLevel::Warning, "Failed to open OBF '%s'", qPrintable(filePath));
-                continue;
-            }
-
-            // Create local resource entry
-            const auto fileName = obfFileInfo.fileName();
-            const auto resourceId = fileName.toLower();
-            const auto pLocalResource = new InstalledResource(
-                resourceId,
-                ResourceType::RoadMapRegion,
-                filePath,
-                obfFileInfo.size(),
-                obfFile->obfInfo->creationTimestamp);
-            pLocalResource->_metadata.reset(new ObfMetadata(obfFile));
-            std::shared_ptr<const LocalResource> localResource(pLocalResource);
-            outResult.insert(resourceId, qMove(localResource));
-        }
+        // Find ResourceType::HeightmapRegion -> "*.heightmap.sqlitedb" files
+        loadLocalResourcesFromPath_SQLiteDB(
+            storagePath,
+            outResult,
+            QLatin1String("*.heightmap.sqlitedb"),
+            ResourceType::HeightmapRegion);
     }
-
-    // Find ResourceType::SrtmMapRegion -> "*.srtm.obf" files
-    if (!isUnmanagedStorage)
+    else
     {
-        QFileInfoList obfFileInfos;
-        Utilities::findFiles(storageDir, QStringList() << QLatin1String("*.srtm.obf"), obfFileInfos, false);
-        for (const auto& obfFileInfo : constOf(obfFileInfos))
-        {
-            const auto filePath = obfFileInfo.absoluteFilePath();
-
-            // Read information from OBF
-            const std::shared_ptr<const ObfFile> obfFile(new ObfFile(filePath));
-            if (!ObfReader(obfFile).obtainInfo())
-            {
-                LogPrintf(LogSeverityLevel::Warning, "Failed to open OBF '%s'", qPrintable(filePath));
-                continue;
-            }
-
-            // Create local resource entry
-            const auto fileName = obfFileInfo.fileName();
-            const auto resourceId = fileName.toLower();
-            const auto pLocalResource = new InstalledResource(
-                resourceId,
-                ResourceType::SrtmMapRegion,
-                filePath,
-                obfFileInfo.size(),
-                obfFile->obfInfo->creationTimestamp);
-            pLocalResource->_metadata.reset(new ObfMetadata(obfFile));
-            std::shared_ptr<const LocalResource> localResource(pLocalResource);
-            outResult.insert(resourceId, qMove(localResource));
-        }
-    }
-
-    // In unmanaged storage, "*.obf" files can contain anything
-    if (isUnmanagedStorage)
-    {
-        QFileInfoList obfFileInfos;
-        Utilities::findFiles(storageDir, QStringList() << QLatin1String("*.obf"), obfFileInfos, false);
-        for (const auto& obfFileInfo : constOf(obfFileInfos))
-        {
-            const auto filePath = obfFileInfo.absoluteFilePath();
-            const auto fileName = obfFileInfo.fileName();
-
-            // Read information from OBF
-            const std::shared_ptr<const ObfFile> obfFile(new ObfFile(filePath));
-            const auto obfInfo = ObfReader(obfFile).obtainInfo();
-            if (!obfInfo)
-            {
-                LogPrintf(LogSeverityLevel::Warning, "Failed to open OBF '%s'", qPrintable(filePath));
-                continue;
-            }
-
-            // Determine resource type and id
-            QString resourceId = fileName.toLower().remove("_2");
-            auto resourceType = ResourceType::Unknown;
-            if(fileName.endsWith(".srtm.obf"))
-            {
-                resourceType = ResourceType::SrtmMapRegion;
-            }
-            else if(fileName.endsWith(".road.obf"))
-            {
-                resourceType = ResourceType::RoadMapRegion;
-            }
-            else
-            {
-                resourceType = ResourceType::MapRegion;
-                resourceId = resourceId.replace(QLatin1String(".obf"), QLatin1String(".map.obf"));
-            }
-
-            if (resourceType == ResourceType::Unknown)
-            {
-                LogPrintf(LogSeverityLevel::Warning, "Failed to determine type of OBF '%s'", qPrintable(filePath));
-                continue;
-            }
-
-            // Create local resource entry
-            const auto pLocalResource = new InstalledResource(
-                resourceId,
-                resourceType,
-                filePath,
-                obfFileInfo.size(),
-                obfFile->obfInfo->creationTimestamp);
-            pLocalResource->_metadata.reset(new ObfMetadata(obfFile));
-            std::shared_ptr<const LocalResource> localResource(pLocalResource);
-            outResult.insert(resourceId, qMove(localResource));
-        }
+        // In unmanaged storage, "*.sqlitedb" files can contain anything
+        loadLocalResourcesFromPath_SQLiteDB(storagePath, outResult);
     }
 
     // Find ResourceType::VoicePack -> "*.voice" directories
     if (!isUnmanagedStorage)
-    {
-        QFileInfoList voicePackDirectories;
-        Utilities::findDirectories(storageDir, QStringList() << QLatin1String("*.voice"), voicePackDirectories, false);
-        for (const auto& voicePackDirectory : constOf(voicePackDirectories))
-        {
-            const auto dirPath = voicePackDirectory.absoluteFilePath();
-
-            // Check for proper voice-pack
-            QFile voiceConfig(QDir(dirPath).absoluteFilePath(QLatin1String("_config.p")));
-            if (!voiceConfig.exists())
-            {
-                LogPrintf(LogSeverityLevel::Warning, "Failed to recognize voice-pack '%s'", qPrintable(dirPath));
-                continue;
-            }
-
-            // Read special timestamp file
-            uint64_t timestamp = 0;
-            QFile timestampFile(QDir(dirPath).absoluteFilePath(QLatin1String(".timestamp")));
-            if (timestampFile.open(QIODevice::ReadOnly | QIODevice::Text))
-            {
-                QTextStream(&timestampFile) >> timestamp;
-                timestampFile.flush();
-                timestampFile.close();
-            }
-            else
-            {
-                timestamp = QFileInfo(voiceConfig).lastModified().toMSecsSinceEpoch();
-            }
-
-            // Read special size file
-            uint64_t contentSize = 0;
-            QFile sizeFile(QDir(dirPath).absoluteFilePath(QLatin1String(".size")));
-            if (sizeFile.open(QIODevice::ReadOnly | QIODevice::Text))
-            {
-                QTextStream(&sizeFile) >> contentSize;
-                sizeFile.flush();
-                sizeFile.close();
-            }
-
-            // Create local resource entry
-            const auto fileName = voicePackDirectory.fileName();
-            const auto resourceId = fileName.toLower();
-            std::shared_ptr<const LocalResource> localResource(new InstalledResource(
-                resourceId,
-                ResourceType::VoicePack,
-                dirPath,
-                contentSize,
-                timestamp));
-            outResult.insert(resourceId, qMove(localResource));
-        }
-    }
+        loadLocalResourcesFromPath_VoicePack(storagePath, outResult);
 
     // Find ResourceType::MapStyleResource -> "*.render.xml" files (only in unmanaged storage)
     if (isUnmanagedStorage)
-    {
-        QFileInfoList mapStyleFileInfos;
-        Utilities::findFiles(storageDir, QStringList() << QLatin1String("*.render.xml"), mapStyleFileInfos, false);
-        for (const auto& mapStyleFileInfo : constOf(mapStyleFileInfos))
-        {
-            const auto filePath = mapStyleFileInfo.absoluteFilePath();
-            const auto fileSize = mapStyleFileInfo.size();
-
-            // Load resource
-            const std::shared_ptr<UnresolvedMapStyle> mapStyle(new UnresolvedMapStyle(filePath));
-            if (!mapStyle->loadMetadata())
-            {
-                LogPrintf(LogSeverityLevel::Warning, "Failed to open map style '%s'", qPrintable(filePath));
-                continue;
-            }
-
-            // Create local resource entry
-            const auto fileName = mapStyleFileInfo.fileName();
-            const auto resourceId = fileName.toLower();
-            const auto pLocalResource = new UnmanagedResource(
-                resourceId,
-                ResourceType::MapStyle,
-                filePath,
-                fileSize,
-                fileName);
-            pLocalResource->_metadata.reset(new MapStyleMetadata(mapStyle));
-            std::shared_ptr<const LocalResource> localResource(pLocalResource);
-            outResult.insert(resourceId, qMove(localResource));
-        }
-    }
-
-    // Find ResourceType::MapStylesPresetsResource -> "*.map_styles_presets.xml" files (only in unmanaged storage)
-    if (isUnmanagedStorage)
-    {
-        QFileInfoList mapStylesPresetsFileInfos;
-        Utilities::findFiles(
-            storageDir,
-            QStringList() << QLatin1String("*.map_styles_presets.xml"),
-            mapStylesPresetsFileInfos,
-            false);
-        for (const auto& mapStylesPresetsFileInfo : constOf(mapStylesPresetsFileInfos))
-        {
-            const auto filePath = mapStylesPresetsFileInfo.absoluteFilePath();
-            const auto fileSize = mapStylesPresetsFileInfo.size();
-
-            // Load resource
-            const std::shared_ptr<MapStylesPresetsCollection> presets(new MapStylesPresetsCollection());
-            if (!presets->loadFrom(filePath))
-            {
-                LogPrintf(LogSeverityLevel::Warning, "Failed to load map styles presets from '%s'", qPrintable(filePath));
-                continue;
-            }
-
-            // Create local resource entry
-            const auto fileName = mapStylesPresetsFileInfo.fileName();
-            const auto resourceId = fileName.toLower();
-            const auto pLocalResource = new UnmanagedResource(
-                resourceId,
-                ResourceType::MapStylesPresets,
-                filePath,
-                fileSize,
-                fileName);
-            pLocalResource->_metadata.reset(new MapStylesPresetsMetadata(presets));
-            std::shared_ptr<const LocalResource> localResource(pLocalResource);
-            outResult.insert(resourceId, qMove(localResource));
-        }
-    }
+        loadLocalResourcesFromPath_MapStyleResource(storagePath, outResult);
 
     // Find ResourceType::OnlineTileSourcesResource -> "*.online_tile_sources.xml" files (only in unmanaged storage)
     if (isUnmanagedStorage)
-    {
-        QFileInfoList onlineTileSourcesFileInfos;
-        Utilities::findFiles(
-            storageDir,
-            QStringList() << QLatin1String("*.online_tile_sources.xml"),
-            onlineTileSourcesFileInfos,
-            false);
-        for (const auto& onlineTileSourcesFileInfo : constOf(onlineTileSourcesFileInfos))
-        {
-            const auto filePath = onlineTileSourcesFileInfo.absoluteFilePath();
-            const auto fileSize = onlineTileSourcesFileInfo.size();
-
-            // Load resource
-            const std::shared_ptr<OnlineTileSources> sources(new OnlineTileSources());
-            if (!sources->loadFrom(filePath))
-            {
-                LogPrintf(LogSeverityLevel::Warning, "Failed to load online tile sources from '%s'", qPrintable(filePath));
-                continue;
-            }
-
-            // Create local resource entry
-            const auto fileName = onlineTileSourcesFileInfo.fileName();
-            const auto resourceId = fileName.toLower();
-            const auto pLocalResource = new UnmanagedResource(
-                resourceId,
-                ResourceType::OnlineTileSources,
-                filePath,
-                fileSize,
-                fileName);
-            pLocalResource->_metadata.reset(new OnlineTileSourcesMetadata(sources));
-            std::shared_ptr<const LocalResource> localResource(pLocalResource);
-            outResult.insert(resourceId, qMove(localResource));
-        }
-    }
+        loadLocalResourcesFromPath_OnlineTileSourcesResource(storagePath, outResult);
 
     return true;
+}
+
+void OsmAnd::ResourcesManager_P::loadLocalResourcesFromPath_Obf(
+    const QString& storagePath,
+    QHash< QString, std::shared_ptr<const LocalResource> > &outResult,
+    const QString& filenameMask,
+    const ResourceType resourceType) const
+{
+    QFileInfoList obfFileInfos;
+    Utilities::findFiles(storagePath, QStringList() << filenameMask, obfFileInfos, false);
+    for (const auto& obfFileInfo : constOf(obfFileInfos))
+    {
+        const auto filePath = obfFileInfo.absoluteFilePath();
+
+        // Read information from OBF
+        const std::shared_ptr<const ObfFile> obfFile(new ObfFile(filePath));
+        if (!ObfReader(obfFile).obtainInfo())
+        {
+            LogPrintf(LogSeverityLevel::Warning, "Failed to open OBF '%s'", qPrintable(filePath));
+            continue;
+        }
+
+        // Create local resource entry
+        const auto fileName = obfFileInfo.fileName();
+        const auto resourceId = fileName.toLower();
+        const auto pLocalResource = new InstalledResource(
+            resourceId,
+            resourceType,
+            filePath,
+            obfFileInfo.size(),
+            obfFile->obfInfo->creationTimestamp);
+        pLocalResource->_metadata.reset(new ObfMetadata(obfFile));
+        std::shared_ptr<const LocalResource> localResource(pLocalResource);
+        outResult.insert(resourceId, qMove(localResource));
+    }
+}
+
+void OsmAnd::ResourcesManager_P::loadLocalResourcesFromPath_Obf(
+    const QString& storagePath,
+    QHash< QString, std::shared_ptr<const LocalResource> > &outResult) const
+{
+    QFileInfoList obfFileInfos;
+    Utilities::findFiles(storagePath, QStringList() << QLatin1String("*.obf"), obfFileInfos, false);
+    for (const auto& obfFileInfo : constOf(obfFileInfos))
+    {
+        const auto filePath = obfFileInfo.absoluteFilePath();
+        const auto fileName = obfFileInfo.fileName();
+
+        // Read information from OBF
+        const std::shared_ptr<const ObfFile> obfFile(new ObfFile(filePath));
+        const auto obfInfo = ObfReader(obfFile).obtainInfo();
+        if (!obfInfo)
+        {
+            LogPrintf(LogSeverityLevel::Warning, "Failed to open OBF '%s'", qPrintable(filePath));
+            continue;
+        }
+
+        // Determine resource type and id
+        auto resourceId = fileName.toLower().remove("_2");
+        auto resourceType = ResourceType::Unknown;
+        if (fileName.endsWith(".srtm.obf"))
+            resourceType = ResourceType::SrtmMapRegion;
+        else if (fileName.endsWith(".road.obf"))
+            resourceType = ResourceType::RoadMapRegion;
+        else if (fileName.endsWith(".wiki.obf"))
+            resourceType = ResourceType::WikiMapRegion;
+        else
+        {
+            resourceType = ResourceType::MapRegion;
+            resourceId.replace(QLatin1String(".obf"), QLatin1String(".map.obf"));
+        }
+
+        if (resourceType == ResourceType::Unknown)
+        {
+            LogPrintf(LogSeverityLevel::Warning, "Failed to determine type of OBF '%s'", qPrintable(filePath));
+            continue;
+        }
+
+        // Create local resource entry
+        const auto pLocalResource = new InstalledResource(
+            resourceId,
+            resourceType,
+            filePath,
+            obfFileInfo.size(),
+            obfFile->obfInfo->creationTimestamp);
+        pLocalResource->_metadata.reset(new ObfMetadata(obfFile));
+        std::shared_ptr<const LocalResource> localResource(pLocalResource);
+        outResult.insert(resourceId, qMove(localResource));
+    }
+}
+
+void OsmAnd::ResourcesManager_P::loadLocalResourcesFromPath_SQLiteDB(
+    const QString& storagePath,
+    QHash< QString, std::shared_ptr<const LocalResource> > &outResult,
+    const QString& filenameMask,
+    const ResourceType resourceType) const
+{
+    QFileInfoList sqlitedbFileInfos;
+    Utilities::findFiles(storagePath, QStringList() << filenameMask, sqlitedbFileInfos, false);
+    for (const auto& sqlitedbFileInfo : constOf(sqlitedbFileInfos))
+    {
+        const auto filePath = sqlitedbFileInfo.absoluteFilePath();
+
+//        // Read information from OBF
+//        const std::shared_ptr<const ObfFile> obfFile(new ObfFile(filePath));
+//        if (!ObfReader(obfFile).obtainInfo())
+//        {
+//            LogPrintf(LogSeverityLevel::Warning, "Failed to open OBF '%s'", qPrintable(filePath));
+//            continue;
+//        }
+
+        // Create local resource entry
+        const auto fileName = sqlitedbFileInfo.fileName();
+        const auto resourceId = fileName.toLower();
+        const auto pLocalResource = new InstalledResource(
+            resourceId,
+            resourceType,
+            filePath,
+            sqlitedbFileInfo.size(),
+            std::numeric_limits<uint64_t>::max()); //NOTE: This resource will never update
+        std::shared_ptr<const LocalResource> localResource(pLocalResource);
+        outResult.insert(resourceId, qMove(localResource));
+    }
+}
+
+void OsmAnd::ResourcesManager_P::loadLocalResourcesFromPath_SQLiteDB(
+    const QString& storagePath,
+    QHash< QString, std::shared_ptr<const LocalResource> > &outResult) const
+{
+    QFileInfoList sqlitedbFileInfos;
+    Utilities::findFiles(storagePath, QStringList() << QLatin1String("*.sqlitedb"), sqlitedbFileInfos, false);
+    for (const auto& sqlitedbFileInfo : constOf(sqlitedbFileInfos))
+    {
+        const auto filePath = sqlitedbFileInfo.absoluteFilePath();
+        const auto fileName = sqlitedbFileInfo.fileName();
+
+        // Read information from OBF
+        const std::shared_ptr<const ObfFile> obfFile(new ObfFile(filePath));
+        const auto obfInfo = ObfReader(obfFile).obtainInfo();
+        if (!obfInfo)
+        {
+            LogPrintf(LogSeverityLevel::Warning, "Failed to open OBF '%s'", qPrintable(filePath));
+            continue;
+        }
+
+        // Determine resource type and id
+        QString resourceId = fileName.toLower();
+        auto resourceType = ResourceType::Unknown;
+        if (fileName.endsWith(".hillshade.sqlitedb"))
+            resourceType = ResourceType::HillshadeRegion;
+        else if (fileName.startsWith("Hillshade_"))
+        {
+            resourceType = ResourceType::HillshadeRegion;
+            resourceId = resourceId
+                .remove("Hillshade_")
+                .replace(".sqlitedb", ".hillshade.sqlitedb");
+        }
+        else if (fileName.endsWith(".heightmap.sqlitedb"))
+            resourceType = ResourceType::HeightmapRegion;
+        else if (fileName.startsWith("Heightmap_"))
+        {
+            resourceType = ResourceType::HeightmapRegion;
+            resourceId = resourceId
+                .remove("Heightmap_")
+                .replace(".sqlitedb", ".heightmap.sqlitedb");
+        }
+
+        if (resourceType == ResourceType::Unknown)
+        {
+            LogPrintf(LogSeverityLevel::Warning, "Failed to determine type of SQLiteDB '%s'", qPrintable(filePath));
+            continue;
+        }
+
+        // Create local resource entry
+        const auto pLocalResource = new InstalledResource(
+            resourceId,
+            resourceType,
+            filePath,
+            sqlitedbFileInfo.size(),
+            obfFile->obfInfo->creationTimestamp);
+        pLocalResource->_metadata.reset(new ObfMetadata(obfFile));
+        std::shared_ptr<const LocalResource> localResource(pLocalResource);
+        outResult.insert(resourceId, qMove(localResource));
+    }
+}
+
+void OsmAnd::ResourcesManager_P::loadLocalResourcesFromPath_VoicePack(
+    const QString& storagePath,
+    QHash< QString, std::shared_ptr<const LocalResource> > &outResult) const
+{
+    QFileInfoList voicePackDirectories;
+    Utilities::findDirectories(storagePath, QStringList() << QLatin1String("*.voice"), voicePackDirectories, false);
+    for (const auto& voicePackDirectory : constOf(voicePackDirectories))
+    {
+        const auto dirPath = voicePackDirectory.absoluteFilePath();
+
+        // Check for proper voice-pack
+        QFile voiceConfig(QDir(dirPath).absoluteFilePath(QLatin1String("_config.p")));
+        if (!voiceConfig.exists())
+        {
+            LogPrintf(LogSeverityLevel::Warning, "Failed to recognize voice-pack '%s'", qPrintable(dirPath));
+            continue;
+        }
+
+        // Read special timestamp file
+        uint64_t timestamp = 0;
+        QFile timestampFile(QDir(dirPath).absoluteFilePath(QLatin1String(".timestamp")));
+        if (timestampFile.open(QIODevice::ReadOnly | QIODevice::Text))
+        {
+            QTextStream(&timestampFile) >> timestamp;
+            timestampFile.flush();
+            timestampFile.close();
+        }
+        else
+        {
+            timestamp = QFileInfo(voiceConfig).lastModified().toMSecsSinceEpoch();
+        }
+
+        // Read special size file
+        uint64_t contentSize = 0;
+        QFile sizeFile(QDir(dirPath).absoluteFilePath(QLatin1String(".size")));
+        if (sizeFile.open(QIODevice::ReadOnly | QIODevice::Text))
+        {
+            QTextStream(&sizeFile) >> contentSize;
+            sizeFile.flush();
+            sizeFile.close();
+        }
+
+        // Create local resource entry
+        const auto fileName = voicePackDirectory.fileName();
+        const auto resourceId = fileName.toLower();
+        std::shared_ptr<const LocalResource> localResource(new InstalledResource(
+            resourceId,
+            ResourceType::VoicePack,
+            dirPath,
+            contentSize,
+            timestamp));
+        outResult.insert(resourceId, qMove(localResource));
+    }
+}
+
+void OsmAnd::ResourcesManager_P::loadLocalResourcesFromPath_MapStyleResource(
+    const QString& storagePath,
+    QHash< QString, std::shared_ptr<const LocalResource> > &outResult) const
+{
+    QFileInfoList mapStyleFileInfos;
+    Utilities::findFiles(storagePath, QStringList() << QLatin1String("*.render.xml"), mapStyleFileInfos, false);
+    for (const auto& mapStyleFileInfo : constOf(mapStyleFileInfos))
+    {
+        const auto filePath = mapStyleFileInfo.absoluteFilePath();
+        const auto fileSize = mapStyleFileInfo.size();
+
+        // Load resource
+        const std::shared_ptr<UnresolvedMapStyle> mapStyle(new UnresolvedMapStyle(filePath));
+        if (!mapStyle->loadMetadata())
+        {
+            LogPrintf(LogSeverityLevel::Warning, "Failed to open map style '%s'", qPrintable(filePath));
+            continue;
+        }
+
+        // Create local resource entry
+        const auto fileName = mapStyleFileInfo.fileName();
+        const auto resourceId = fileName.toLower();
+        const auto pLocalResource = new UnmanagedResource(
+            resourceId,
+            ResourceType::MapStyle,
+            filePath,
+            fileSize,
+            fileName);
+        pLocalResource->_metadata.reset(new MapStyleMetadata(mapStyle));
+        std::shared_ptr<const LocalResource> localResource(pLocalResource);
+        outResult.insert(resourceId, qMove(localResource));
+    }
+}
+
+void OsmAnd::ResourcesManager_P::loadLocalResourcesFromPath_OnlineTileSourcesResource(
+    const QString& storagePath,
+    QHash< QString, std::shared_ptr<const LocalResource> > &outResult) const
+{
+    QFileInfoList onlineTileSourcesFileInfos;
+    Utilities::findFiles(
+        storagePath,
+        QStringList() << QLatin1String("*.online_tile_sources.xml"),
+        onlineTileSourcesFileInfos,
+        false);
+    for (const auto& onlineTileSourcesFileInfo : constOf(onlineTileSourcesFileInfos))
+    {
+        const auto filePath = onlineTileSourcesFileInfo.absoluteFilePath();
+        const auto fileSize = onlineTileSourcesFileInfo.size();
+
+        // Load resource
+        const std::shared_ptr<OnlineTileSources> sources(new OnlineTileSources());
+        if (!sources->loadFrom(filePath))
+        {
+            LogPrintf(LogSeverityLevel::Warning, "Failed to load online tile sources from '%s'", qPrintable(filePath));
+            continue;
+        }
+
+        // Create local resource entry
+        const auto fileName = onlineTileSourcesFileInfo.fileName();
+        const auto resourceId = fileName.toLower();
+        const auto pLocalResource = new UnmanagedResource(
+            resourceId,
+            ResourceType::OnlineTileSources,
+            filePath,
+            fileSize,
+            fileName);
+        pLocalResource->_metadata.reset(new OnlineTileSourcesMetadata(sources));
+        std::shared_ptr<const LocalResource> localResource(pLocalResource);
+        outResult.insert(resourceId, qMove(localResource));
+    }
 }
 
 QHash< QString, std::shared_ptr<const OsmAnd::ResourcesManager_P::LocalResource> >
@@ -646,6 +707,12 @@ bool OsmAnd::ResourcesManager_P::parseRepository(
             resourceType = ResourceType::RoadMapRegion;
         else if (resourceTypeValue == QLatin1String("srtm_map"))
             resourceType = ResourceType::SrtmMapRegion;
+        else if (resourceTypeValue == QLatin1String("wikimap"))
+            resourceType = ResourceType::WikiMapRegion;
+        else if (resourceTypeValue == QLatin1String("hillshade"))
+            resourceType = ResourceType::HillshadeRegion;
+        else if (resourceTypeValue == QLatin1String("heightmap"))
+            resourceType = ResourceType::HeightmapRegion;
         else if (resourceTypeValue == QLatin1String("voice"))
             resourceType = ResourceType::VoicePack;
         else
@@ -694,7 +761,8 @@ bool OsmAnd::ResourcesManager_P::parseRepository(
             case ResourceType::MapRegion:
                 // '[region]_2.obf.zip' -> '[region].map.obf'
                 resourceId = QString(name)
-                    .remove(QLatin1String("_2.obf.zip")).toLower()
+                    .remove(QLatin1String("_2.obf.zip"))
+                    .toLower()
                     .append(QLatin1String(".map.obf"));
                 downloadUrl =
                     owner->repositoryBaseUrl +
@@ -704,7 +772,8 @@ bool OsmAnd::ResourcesManager_P::parseRepository(
             case ResourceType::RoadMapRegion:
                 // '[region]_2.obf.zip' -> '[region].road.obf'
                 resourceId = QString(name)
-                    .remove(QLatin1String("_2.obf.zip")).toLower()
+                    .remove(QLatin1String("_2.obf.zip"))
+                    .toLower()
                     .append(QLatin1String(".road.obf"));
                 downloadUrl =
                     owner->repositoryBaseUrl +
@@ -714,17 +783,54 @@ bool OsmAnd::ResourcesManager_P::parseRepository(
             case ResourceType::SrtmMapRegion:
                 // '[region]_2.srtm.obf.zip' -> '[region].srtm.obf'
                 resourceId = QString(name)
-                    .remove(QLatin1String("_2.srtm.obf.zip")).toLower()
+                    .remove(QLatin1String("_2.srtm.obf.zip"))
+                    .toLower()
                     .append(QLatin1String(".srtm.obf"));
                 downloadUrl =
                     owner->repositoryBaseUrl +
                     QLatin1String("/download.php?srtmcountry=yes&file=") +
                     QUrl::toPercentEncoding(name);
                 break;
+            case ResourceType::WikiMapRegion:
+                // '[region]_2.wiki.obf.zip' -> '[region].wiki.obf'
+                resourceId = QString(name)
+                    .remove(QLatin1String("_2.wiki.obf.zip"))
+                    .toLower()
+                    .append(QLatin1String(".wiki.obf"));
+                downloadUrl =
+                    owner->repositoryBaseUrl +
+                    QLatin1String("/download.php?wiki=yes&file=") +
+                    QUrl::toPercentEncoding(name);
+                break;
+            case ResourceType::HillshadeRegion:
+                // 'Hillshade_[region].sqlitedb' -> '[region].hillshade.sqlitedb'
+                resourceId = QString(name)
+                    .remove(QLatin1String("Hillshade_"))
+                    .remove(QLatin1String(".sqlitedb"))
+                    .toLower()
+                    .append(QLatin1String(".hillshade.sqlitedb"));
+                downloadUrl =
+                    owner->repositoryBaseUrl +
+                    QLatin1String("/download.php?hillshade=yes&file=") +
+                    QUrl::toPercentEncoding(name);
+                break;
+            case ResourceType::HeightmapRegion:
+                // 'Heightmap_[region].sqlitedb' -> '[region].heightmap.sqlitedb'
+                resourceId = QString(name)
+                    .remove(QLatin1String("Heightmap_"))
+                    .remove(QLatin1String(".sqlitedb"))
+                    .toLower()
+                    .append(QLatin1String(".heightmap.sqlitedb"));
+                downloadUrl =
+                    owner->repositoryBaseUrl +
+                    QLatin1String("/download.php?heightmap=yes&file=") +
+                    QUrl::toPercentEncoding(name);
+                break;
             case ResourceType::VoicePack:
                 // '[language]_0.voice.zip' -> '[resourceName].voice'
                 resourceId = QString(name)
-                    .remove(QLatin1String("_0.voice.zip")).toLower()
+                    .remove(QLatin1String("_0.voice.zip"))
+                    .toLower()
                     .append(QLatin1String(".voice"));
                 downloadUrl =
                     owner->repositoryBaseUrl +
@@ -740,14 +846,6 @@ bool OsmAnd::ResourcesManager_P::parseRepository(
                 else if (isset($_GET['srtm']))
                 {
                     dwFile('srtm/'.$file, 'srtm=yes&file='.$file, "srtm");
-                }
-                else if (isset($_GET['srtmcountry']))
-                {
-                    dwFile('srtm-countries/'.$file, 'srtmcountry=yes&file='.$file, "srtm");
-                }
-                else if (isset($_GET['hillshade']))
-                {
-                    dwFile('hillshade/'.$file, 'hillshade=yes&file='.$file, "hillshade");
                 }
                 else if (isset($_GET['tour']))
                 {
@@ -932,13 +1030,14 @@ bool OsmAnd::ResourcesManager_P::uninstallResource(const QString& id)
     switch (resource->type)
     {
         case ResourceType::MapRegion:
-            ok = uninstallMapRegion(installedResource);
-            break;
         case ResourceType::RoadMapRegion:
-            ok = uninstallRoadMapRegion(installedResource);
-            break;
         case ResourceType::SrtmMapRegion:
-            ok = uninstallSrtmMapRegion(installedResource);
+        case ResourceType::WikiMapRegion:
+            ok = uninstallObf(installedResource);
+            break;
+        case ResourceType::HillshadeRegion:
+        case ResourceType::HeightmapRegion:
+            ok = uninstallSQLiteDB(installedResource);
             break;
         case ResourceType::VoicePack:
             ok = uninstallVoicePack(installedResource);
@@ -960,17 +1059,12 @@ bool OsmAnd::ResourcesManager_P::uninstallResource(const QString& id)
     return true;
 }
 
-bool OsmAnd::ResourcesManager_P::uninstallMapRegion(const std::shared_ptr<const InstalledResource>& resource)
+bool OsmAnd::ResourcesManager_P::uninstallObf(const std::shared_ptr<const InstalledResource>& resource)
 {
     return QFile(resource->localPath).remove();
 }
 
-bool OsmAnd::ResourcesManager_P::uninstallRoadMapRegion(const std::shared_ptr<const InstalledResource>& resource)
-{
-    return QFile(resource->localPath).remove();
-}
-
-bool OsmAnd::ResourcesManager_P::uninstallSrtmMapRegion(const std::shared_ptr<const InstalledResource>& resource)
+bool OsmAnd::ResourcesManager_P::uninstallSQLiteDB(const std::shared_ptr<const InstalledResource>& resource)
 {
     return QFile(resource->localPath).remove();
 }
@@ -999,13 +1093,14 @@ bool OsmAnd::ResourcesManager_P::installFromFile(const QString& id, const QStrin
     switch (resourceType)
     {
         case ResourceType::MapRegion:
-            ok = installMapRegionFromFile(id, filePath, resource);
-            break;
         case ResourceType::RoadMapRegion:
-            ok = installRoadMapRegionFromFile(id, filePath, resource);
-            break;
         case ResourceType::SrtmMapRegion:
-            ok = installSrtmMapRegionFromFile(id, filePath, resource);
+        case ResourceType::WikiMapRegion:
+            ok = installObfFromFile(id, filePath, resourceType, resource);
+            break;
+        case ResourceType::HillshadeRegion:
+        case ResourceType::HeightmapRegion:
+            ok = installSQLiteDBFromFile(id, filePath, resourceType, resource);
             break;
         case ResourceType::VoicePack:
             ok = installVoicePackFromFile(id, filePath, resource);
@@ -1025,13 +1120,14 @@ bool OsmAnd::ResourcesManager_P::installFromFile(const QString& id, const QStrin
     return ok;
 }
 
-bool OsmAnd::ResourcesManager_P::installMapRegionFromFile(
+bool OsmAnd::ResourcesManager_P::installObfFromFile(
     const QString& id,
     const QString& filePath,
+    const ResourceType resourceType,
     std::shared_ptr<const InstalledResource>& outResource,
     const QString& localPath_ /*= QString::null*/)
 {
-    assert(id.endsWith(".map.obf"));
+    assert(id.endsWith(".obf"));
 
     ArchiveReader archive(filePath);
 
@@ -1071,7 +1167,7 @@ bool OsmAnd::ResourcesManager_P::installMapRegionFromFile(
     // Create local resource entry
     const auto pLocalResource = new InstalledResource(
         id,
-        ResourceType::MapRegion,
+        resourceType,
         localFileName,
         obfFile->fileSize,
         obfFile->obfInfo->creationTimestamp);
@@ -1082,115 +1178,31 @@ bool OsmAnd::ResourcesManager_P::installMapRegionFromFile(
     return true;
 }
 
-bool OsmAnd::ResourcesManager_P::installRoadMapRegionFromFile(
+bool OsmAnd::ResourcesManager_P::installSQLiteDBFromFile(
     const QString& id,
     const QString& filePath,
+    const ResourceType resourceType,
     std::shared_ptr<const InstalledResource>& outResource,
     const QString& localPath_ /*= QString::null*/)
 {
-    assert(id.endsWith(".road.obf"));
+    assert(id.endsWith(".sqlitedb"));
 
-    ArchiveReader archive(filePath);
-
-    // List items
-    bool ok = false;
-    const auto archiveItems = archive.getItems(&ok);
-    if (!ok)
-        return false;
-
-    // Find the OBF file
-    ArchiveReader::Item obfArchiveItem;
-    for (const auto& archiveItem : constOf(archiveItems))
-    {
-        if (!archiveItem.isValid() || !archiveItem.name.endsWith(QLatin1String(".obf")))
-            continue;
-
-        obfArchiveItem = archiveItem;
-        break;
-    }
-    if (!obfArchiveItem.isValid())
-        return false;
-
-    // Extract that file without keeping directory structure
+    // Copy that file
     const auto localFileName = localPath_.isNull() ? QDir(owner->localStoragePath).absoluteFilePath(id) : localPath_;
-    if (!archive.extractItemToFile(obfArchiveItem.name, localFileName))
-        return false;
-
-    // Read information from OBF
-    const std::shared_ptr<const ObfFile> obfFile(new ObfFile(localFileName));
-    if (!ObfReader(obfFile).obtainInfo())
+    if (!QFile::copy(filePath, localFileName))
     {
-        LogPrintf(LogSeverityLevel::Warning, "Failed to open OBF '%s'", qPrintable(localFileName));
-        QFile(filePath).remove();
+        QFile(localFileName).remove();
         return false;
     }
 
     // Create local resource entry
     const auto pLocalResource = new InstalledResource(
         id,
-        ResourceType::RoadMapRegion,
+        resourceType,
         localFileName,
-        obfFile->fileSize,
-        obfFile->obfInfo->creationTimestamp);
+        QFile(localFileName).size(),
+        std::numeric_limits<uint64_t>::max()); //NOTE: This resource will never update
     outResource.reset(pLocalResource);
-    pLocalResource->_metadata.reset(new ObfMetadata(obfFile));
-    _localResources.insert(id, outResource);
-
-    return true;
-}
-
-bool OsmAnd::ResourcesManager_P::installSrtmMapRegionFromFile(
-    const QString& id,
-    const QString& filePath,
-    std::shared_ptr<const InstalledResource>& outResource,
-    const QString& localPath_ /*= QString::null*/)
-{
-    assert(id.endsWith(".srtm.obf"));
-
-    ArchiveReader archive(filePath);
-
-    // List items
-    bool ok = false;
-    const auto archiveItems = archive.getItems(&ok);
-    if (!ok)
-        return false;
-
-    // Find the OBF file
-    ArchiveReader::Item obfArchiveItem;
-    for (const auto& archiveItem : constOf(archiveItems))
-    {
-        if (!archiveItem.isValid() || !archiveItem.name.endsWith(QLatin1String(".obf")))
-            continue;
-
-        obfArchiveItem = archiveItem;
-        break;
-    }
-    if (!obfArchiveItem.isValid())
-        return false;
-
-    // Extract that file without keeping directory structure
-    const auto localFileName = localPath_.isNull() ? QDir(owner->localStoragePath).absoluteFilePath(id) : localPath_;
-    if (!archive.extractItemToFile(obfArchiveItem.name, localFileName))
-        return false;
-
-    // Read information from OBF
-    const std::shared_ptr<const ObfFile> obfFile(new ObfFile(localFileName));
-    if (!ObfReader(obfFile).obtainInfo())
-    {
-        LogPrintf(LogSeverityLevel::Warning, "Failed to open OBF '%s'", qPrintable(localFileName));
-        QFile(filePath).remove();
-        return false;
-    }
-
-    // Create local resource entry
-    const auto pLocalResource = new InstalledResource(
-        id,
-        ResourceType::SrtmMapRegion,
-        localFileName,
-        obfFile->fileSize,
-        obfFile->obfInfo->creationTimestamp);
-    outResource.reset(pLocalResource);
-    pLocalResource->_metadata.reset(new ObfMetadata(obfFile));
     _localResources.insert(id, outResource);
 
     return true;
@@ -1350,7 +1362,7 @@ bool OsmAnd::ResourcesManager_P::updateFromFile(const QString& filePath)
     return updateFromFile(guessedResourceId, filePath);
 }
 
-bool OsmAnd::ResourcesManager_P::updateMapRegionFromFile(
+bool OsmAnd::ResourcesManager_P::updateObfFromFile(
     std::shared_ptr<const InstalledResource>& resource,
     const QString& filePath)
 {
@@ -1358,14 +1370,13 @@ bool OsmAnd::ResourcesManager_P::updateMapRegionFromFile(
         return false;
 
     bool ok;
-    const auto localPath = resource->localPath;
-    ok = uninstallMapRegion(resource);
-    ok = installMapRegionFromFile(resource->id, filePath, resource, localPath);
+    ok = uninstallObf(resource);
+    ok = installObfFromFile(resource->id, filePath, resource->type, resource, resource->localPath);
 
     return ok;
 }
 
-bool OsmAnd::ResourcesManager_P::updateRoadMapRegionFromFile(
+bool OsmAnd::ResourcesManager_P::updateSQLiteDBFromFile(
     std::shared_ptr<const InstalledResource>& resource,
     const QString& filePath)
 {
@@ -1373,24 +1384,8 @@ bool OsmAnd::ResourcesManager_P::updateRoadMapRegionFromFile(
         return false;
 
     bool ok;
-    const auto localPath = resource->localPath;
-    ok = uninstallRoadMapRegion(resource);
-    ok = installRoadMapRegionFromFile(resource->id, filePath, resource, localPath);
-
-    return ok;
-}
-
-bool OsmAnd::ResourcesManager_P::updateSrtmMapRegionFromFile(
-    std::shared_ptr<const InstalledResource>& resource,
-    const QString& filePath)
-{
-    if (!resource->_lock.lockForWriting())
-        return false;
-
-    bool ok;
-    const auto localPath = resource->localPath;
-    ok = uninstallSrtmMapRegion(resource);
-    ok = installSrtmMapRegionFromFile(resource->id, filePath, resource, localPath);
+    ok = uninstallSQLiteDB(resource);
+    ok = installSQLiteDBFromFile(resource->id, filePath, resource->type, resource, resource->localPath);
 
     return ok;
 }
@@ -1403,9 +1398,8 @@ bool OsmAnd::ResourcesManager_P::updateVoicePackFromFile(
         return false;
 
     bool ok;
-    const auto localPath = resource->localPath;
     ok = uninstallVoicePack(resource);
-    ok = installVoicePackFromFile(resource->id, filePath, resource, localPath);
+    ok = installVoicePackFromFile(resource->id, filePath, resource, resource->localPath);
 
     return ok;
 }
@@ -1428,13 +1422,14 @@ bool OsmAnd::ResourcesManager_P::updateFromFile(
     switch (localResource->type)
     {
         case ResourceType::MapRegion:
-            ok = updateMapRegionFromFile(installedResource, filePath);
-            break;
         case ResourceType::RoadMapRegion:
-            ok = updateRoadMapRegionFromFile(installedResource, filePath);
-            break;
         case ResourceType::SrtmMapRegion:
-            ok = updateSrtmMapRegionFromFile(installedResource, filePath);
+        case ResourceType::WikiMapRegion:
+            ok = updateObfFromFile(installedResource, filePath);
+            break;
+        case ResourceType::HillshadeRegion:
+        case ResourceType::HeightmapRegion:
+            ok = updateSQLiteDBFromFile(installedResource, filePath);
             break;
         case ResourceType::VoicePack:
             ok = updateVoicePackFromFile(installedResource, filePath);
@@ -1607,7 +1602,8 @@ QList< std::shared_ptr<const OsmAnd::ObfFile> > OsmAnd::ResourcesManager_P::Obfs
     {
         if (localResource->type != ResourceType::MapRegion &&
             localResource->type != ResourceType::RoadMapRegion &&
-            localResource->type != ResourceType::SrtmMapRegion)
+            localResource->type != ResourceType::SrtmMapRegion &&
+            localResource->type != ResourceType::WikiMapRegion)
         {
             continue;
         }
@@ -1639,7 +1635,8 @@ std::shared_ptr<OsmAnd::ObfDataInterface> OsmAnd::ResourcesManager_P::ObfsCollec
     {
         if (localResource->type != ResourceType::MapRegion &&
             localResource->type != ResourceType::RoadMapRegion &&
-            localResource->type != ResourceType::SrtmMapRegion)
+            localResource->type != ResourceType::SrtmMapRegion &&
+            localResource->type != ResourceType::WikiMapRegion)
         {
             continue;
         }
@@ -1837,106 +1834,4 @@ QString OsmAnd::ResourcesManager_P::MapStylesCollectionProxy::normalizeStyleName
     if (!styleName.endsWith(QLatin1String(".render.xml")))
         styleName.append(QLatin1String(".render.xml"));
     return styleName;
-}
-
-OsmAnd::ResourcesManager_P::MapStylesPresetsCollectionProxy::MapStylesPresetsCollectionProxy(ResourcesManager_P* owner_)
-    : owner(owner_)
-{
-}
-
-OsmAnd::ResourcesManager_P::MapStylesPresetsCollectionProxy::~MapStylesPresetsCollectionProxy()
-{
-}
-
-QList< std::shared_ptr<const OsmAnd::MapStylePreset> >
-OsmAnd::ResourcesManager_P::MapStylesPresetsCollectionProxy::getCollection() const
-{
-    QList< std::shared_ptr<const MapStylePreset> > result;
-
-    {
-        QReadLocker scopedLocker(&owner->_localResourcesLock);
-
-        for (const auto& localResource : constOf(owner->_localResources))
-        {
-            if (localResource->type != ResourceType::MapStylesPresets)
-                continue;
-
-            const auto& presets = std::static_pointer_cast<const MapStylesPresetsMetadata>(localResource->_metadata)->presets;
-            result << presets->getCollection();
-        }
-    }
-
-    for (const auto& builtinResource : constOf(owner->_builtinResources))
-    {
-        if (builtinResource->type != ResourceType::MapStylesPresets)
-            continue;
-
-        const auto& presets = std::static_pointer_cast<const MapStylesPresetsMetadata>(builtinResource->_metadata)->presets;
-        result << presets->getCollection();
-    }
-
-    return result;
-}
-
-QList< std::shared_ptr<const OsmAnd::MapStylePreset> >
-OsmAnd::ResourcesManager_P::MapStylesPresetsCollectionProxy::getCollectionFor(const QString& styleName) const
-{
-    QList< std::shared_ptr<const MapStylePreset> > result;
-
-    {
-        QReadLocker scopedLocker(&owner->_localResourcesLock);
-
-        for (const auto& localResource : constOf(owner->_localResources))
-        {
-            if (localResource->type != ResourceType::MapStylesPresets)
-                continue;
-
-            const auto& presets = std::static_pointer_cast<const MapStylesPresetsMetadata>(localResource->_metadata)->presets;
-            result << presets->getCollectionFor(styleName);
-        }
-    }
-
-    for (const auto& builtinResource : constOf(owner->_builtinResources))
-    {
-        if (builtinResource->type != ResourceType::MapStylesPresets)
-            continue;
-
-        const auto& presets = std::static_pointer_cast<const MapStylesPresetsMetadata>(builtinResource->_metadata)->presets;
-        result << presets->getCollectionFor(styleName);
-    }
-
-    return result;
-}
-
-std::shared_ptr<const OsmAnd::MapStylePreset> OsmAnd::ResourcesManager_P::MapStylesPresetsCollectionProxy::getPreset(
-    const QString& styleName,
-    const QString& presetName) const
-{
-    {
-        QReadLocker scopedLocker(&owner->_localResourcesLock);
-
-        for (const auto& localResource : constOf(owner->_localResources))
-        {
-            if (localResource->type != ResourceType::MapStylesPresets)
-                continue;
-
-            const auto& presets = std::static_pointer_cast<const MapStylesPresetsMetadata>(localResource->_metadata)->presets;
-            const auto preset = presets->getPreset(styleName, presetName);
-            if (preset)
-                return preset;
-        }
-    }
-
-    for (const auto& builtinResource : constOf(owner->_builtinResources))
-    {
-        if (builtinResource->type != ResourceType::MapStylesPresets)
-            continue;
-
-        const auto& presets = std::static_pointer_cast<const MapStylesPresetsMetadata>(builtinResource->_metadata)->presets;
-        const auto preset = presets->getPreset(styleName, presetName);
-        if (preset)
-            return preset;
-    }
-
-    return nullptr;
 }

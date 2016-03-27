@@ -50,9 +50,9 @@
 
 // SWIG_OMIT
 #if defined(SWIG)
-#   define SWIG_OMIT(x)
+#   define SWIG_OMIT(...)
 #else
-#   define SWIG_OMIT(x) x
+#   define SWIG_OMIT(...) __VA_ARGS__
 #endif
 
 // SWIG_CLARIFY
@@ -258,6 +258,13 @@
 #   define SWIG_TEMPLATE(name, T...) %template(name) T
 #else
 #   define SWIG_TEMPLATE(name, ...)
+#endif
+
+// SWIG_IGNORE
+#if defined(SWIG)
+#   define SWIG_IGNORE(name) %ignore name
+#else
+#   define SWIG_IGNORE(name)
 #endif
 
 #endif // !defined(_OSMAND_CORE_COMMON_SWIG_H_)

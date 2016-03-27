@@ -18,10 +18,10 @@ std::shared_ptr<OsmAnd::MapPrimitiviser::PrimitivisedObjects> OsmAnd::MapPrimiti
     const ZoomLevel zoom,
     const QList< std::shared_ptr<const MapObject> >& objects,
     const std::shared_ptr<Cache>& cache /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/,
     MapPrimitiviser_Metrics::Metric_primitiviseAllMapObjects* const metric /*= nullptr*/)
 {
-    return _p->primitiviseAllMapObjects(zoom, objects, cache, controller, metric);
+    return _p->primitiviseAllMapObjects(zoom, objects, cache, queryController, metric);
 }
 
 std::shared_ptr<OsmAnd::MapPrimitiviser::PrimitivisedObjects> OsmAnd::MapPrimitiviser::primitiviseAllMapObjects(
@@ -29,10 +29,10 @@ std::shared_ptr<OsmAnd::MapPrimitiviser::PrimitivisedObjects> OsmAnd::MapPrimiti
     const ZoomLevel zoom,
     const QList< std::shared_ptr<const MapObject> >& objects,
     const std::shared_ptr<Cache>& cache /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/,
     MapPrimitiviser_Metrics::Metric_primitiviseAllMapObjects* const metric /*= nullptr*/)
 {
-    return _p->primitiviseAllMapObjects(scaleDivisor31ToPixel, zoom, objects, cache, controller, metric);
+    return _p->primitiviseAllMapObjects(scaleDivisor31ToPixel, zoom, objects, cache, queryController, metric);
 }
 
 std::shared_ptr<OsmAnd::MapPrimitiviser::PrimitivisedObjects> OsmAnd::MapPrimitiviser::primitiviseWithSurface(
@@ -42,10 +42,10 @@ std::shared_ptr<OsmAnd::MapPrimitiviser::PrimitivisedObjects> OsmAnd::MapPrimiti
     const MapSurfaceType surfaceType,
     const QList< std::shared_ptr<const MapObject> >& objects,
     const std::shared_ptr<Cache>& cache /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/,
     MapPrimitiviser_Metrics::Metric_primitiviseWithSurface* const metric /*= nullptr*/)
 {
-    return _p->primitiviseWithSurface(area31, areaSizeInPixels, zoom, surfaceType, objects, cache, controller, metric);
+    return _p->primitiviseWithSurface(area31, areaSizeInPixels, zoom, surfaceType, objects, cache, queryController, metric);
 }
 
 std::shared_ptr<OsmAnd::MapPrimitiviser::PrimitivisedObjects> OsmAnd::MapPrimitiviser::primitiviseWithoutSurface(
@@ -53,10 +53,10 @@ std::shared_ptr<OsmAnd::MapPrimitiviser::PrimitivisedObjects> OsmAnd::MapPrimiti
     const ZoomLevel zoom,
     const QList< std::shared_ptr<const MapObject> >& objects,
     const std::shared_ptr<Cache>& cache /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/,
     MapPrimitiviser_Metrics::Metric_primitiviseWithoutSurface* const metric /*= nullptr*/)
 {
-    return _p->primitiviseWithoutSurface(scaleDivisor31ToPixel, zoom, objects, cache, controller, metric);
+    return _p->primitiviseWithoutSurface(scaleDivisor31ToPixel, zoom, objects, cache, queryController, metric);
 }
 
 OsmAnd::MapPrimitiviser::CoastlineMapObject::CoastlineMapObject()
@@ -91,7 +91,7 @@ OsmAnd::MapPrimitiviser::Primitive::Primitive(
     : group(group_)
     , sourceObject(group_->sourceObject)
     , type(type_)
-    , typeRuleIdIndex(typeRuleIdIndex_)
+    , attributeIdIndex(typeRuleIdIndex_)
     , zOrder(0)
     , doubledArea(-1)
 {
@@ -105,29 +105,12 @@ OsmAnd::MapPrimitiviser::Primitive::Primitive(
     : group(group_)
     , sourceObject(group_->sourceObject)
     , type(type_)
-    , typeRuleIdIndex(typeRuleIdIndex_)
-    , evaluationResult(evaluationResult_)
+    , attributeIdIndex(typeRuleIdIndex_)
+    , evaluationResult(evaluationResult_.pack())
     , zOrder(0)
     , doubledArea(-1)
 {
 }
-
-#ifdef Q_COMPILER_RVALUE_REFS
-OsmAnd::MapPrimitiviser::Primitive::Primitive(
-    const std::shared_ptr<const PrimitivesGroup>& group_,
-    const PrimitiveType type_,
-    const uint32_t typeRuleIdIndex_,
-    MapStyleEvaluationResult&& evaluationResult_)
-    : group(group_)
-    , sourceObject(group_->sourceObject)
-    , type(type_)
-    , typeRuleIdIndex(typeRuleIdIndex_)
-    , evaluationResult(qMove(evaluationResult_))
-    , zOrder(0)
-    , doubledArea(-1)
-{
-}
-#endif // Q_COMPILER_RVALUE_REFS
 
 OsmAnd::MapPrimitiviser::Primitive::~Primitive()
 {
@@ -236,7 +219,8 @@ bool OsmAnd::MapPrimitiviser::TextSymbol::operator==(const TextSymbol& that) con
         this->wrapWidth == that.wrapWidth &&
         this->isBold == that.isBold &&
         this->isItalic == that.isItalic &&
-        this->shieldResourceName == that.shieldResourceName;
+        this->shieldResourceName == that.shieldResourceName &&
+        this->underlayIconResourceName == that.underlayIconResourceName;
 }
 
 bool OsmAnd::MapPrimitiviser::TextSymbol::operator!=(const TextSymbol& that) const
@@ -254,7 +238,8 @@ bool OsmAnd::MapPrimitiviser::TextSymbol::operator!=(const TextSymbol& that) con
         this->wrapWidth != that.wrapWidth ||
         this->isBold != that.isBold ||
         this->isItalic != that.isItalic ||
-        this->shieldResourceName != that.shieldResourceName;
+        this->shieldResourceName != that.shieldResourceName ||
+        this->underlayIconResourceName != that.underlayIconResourceName;
 }
 
 bool OsmAnd::MapPrimitiviser::TextSymbol::hasSameContentAs(const TextSymbol& that) const
@@ -271,7 +256,8 @@ bool OsmAnd::MapPrimitiviser::TextSymbol::hasSameContentAs(const TextSymbol& tha
         this->wrapWidth == that.wrapWidth &&
         this->isBold == that.isBold &&
         this->isItalic == that.isItalic &&
-        this->shieldResourceName == that.shieldResourceName;
+        this->shieldResourceName == that.shieldResourceName &&
+        this->underlayIconResourceName == that.underlayIconResourceName;
 }
 
 bool OsmAnd::MapPrimitiviser::TextSymbol::hasDifferentContentAs(const TextSymbol& that) const
@@ -288,7 +274,8 @@ bool OsmAnd::MapPrimitiviser::TextSymbol::hasDifferentContentAs(const TextSymbol
         this->wrapWidth != that.wrapWidth ||
         this->isBold != that.isBold ||
         this->isItalic != that.isItalic ||
-        this->shieldResourceName != that.shieldResourceName;
+        this->shieldResourceName != that.shieldResourceName ||
+        this->underlayIconResourceName != that.underlayIconResourceName;
 }
 
 OsmAnd::MapPrimitiviser::IconSymbol::IconSymbol(const std::shared_ptr<const Primitive>& primitive_)

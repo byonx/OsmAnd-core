@@ -18,20 +18,27 @@ namespace OsmAnd
 
     class MapRendererBaseKeyedResource
         : public MapRendererBaseResource
-        , public KeyedEntriesCollectionEntryWithState< IMapKeyedDataProvider::Key, MapRendererBaseKeyedResource, MapRendererResourceState, MapRendererResourceState::Unknown >
+        , public KeyedEntriesCollectionEntryWithState<
+            IMapKeyedDataProvider::Key,
+            MapRendererBaseKeyedResource,
+            MapRendererResourceState,
+            MapRendererResourceState::Unknown>
     {
         Q_DISABLE_COPY_AND_MOVE(MapRendererBaseKeyedResource);
 
     public:
         typedef IMapKeyedDataProvider::Key Key;
-        typedef KeyedEntriesCollectionEntryWithState<Key, MapRendererBaseKeyedResource, MapRendererResourceState, MapRendererResourceState::Unknown> BaseKeyedEntriesCollectionEntryWithState;
+        typedef KeyedEntriesCollectionEntryWithState<
+            Key,
+            MapRendererBaseKeyedResource,
+            MapRendererResourceState,
+            MapRendererResourceState::Unknown> BaseKeyedEntriesCollectionEntryWithState;
 
     private:
     protected:
         MapRendererBaseKeyedResource(
             MapRendererResourcesManager* owner,
             const MapRendererResourceType type,
-            const IMapDataProvider::SourceType sourceType,
             const KeyedEntriesCollection<Key, MapRendererBaseKeyedResource>& collection,
             const Key key);
 

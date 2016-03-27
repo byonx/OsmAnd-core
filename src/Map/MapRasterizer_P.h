@@ -78,7 +78,7 @@ namespace OsmAnd
         bool updatePaint(
             const Context& context,
             SkPaint& paint,
-            const MapStyleEvaluationResult& evalResult,
+            const MapStyleEvaluationResult::Packed& evalResult,
             const PaintValuesSet valueSetSelector,
             const bool isArea);
 
@@ -87,7 +87,7 @@ namespace OsmAnd
             SkCanvas& canvas,
             const MapPrimitiviser::PrimitivesCollection& primitives,
             const PrimitivesType type,
-            const IQueryController* const controller);
+            const std::shared_ptr<const IQueryController>& queryController);
 
         void rasterizePolygon(
             const Context& context,
@@ -112,7 +112,7 @@ namespace OsmAnd
             const Context& context,
             SkCanvas& canvas,
             const SkPath& path,
-            const MapStyleEvaluationResult& evalResult);
+            const MapStyleEvaluationResult::Packed& evalResult);
 
         inline void calculateVertex(const Context& context, const PointI& point31, PointF& vertex);
         inline float lineEquation(float x1, float y1, float x2, float y2, float x);
@@ -139,7 +139,7 @@ namespace OsmAnd
             const bool fillBackground,
             const AreaI* const destinationArea,
             MapRasterizer_Metrics::Metric_rasterize* const metric,
-            const IQueryController* const controller);
+            const std::shared_ptr<const IQueryController>& queryController);
 
     friend class OsmAnd::MapRasterizer;
     };

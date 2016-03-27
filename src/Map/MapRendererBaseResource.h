@@ -2,13 +2,13 @@
 #define _OSMAND_CORE_MAP_RENDERER_BASE_RESOURCE_H_
 
 #include "stdlib_common.h"
+#include <functional>
 
 #include "QtExtensions.h"
 
 #include "OsmAndCore.h"
 #include "MapRendererResourceType.h"
 #include "MapRendererResourceState.h"
-#include "Concurrent.h"
 #include "IQueryController.h"
 #include "IMapDataProvider.h"
 
@@ -20,15 +20,17 @@ namespace OsmAnd
     {
         Q_DISABLE_COPY_AND_MOVE(MapRendererBaseResource);
 
+    public:
+        typedef std::function<void()> CancelResourceRequestSignature;
+
     private:
         bool _isJunk;
     protected:
         MapRendererBaseResource(
             MapRendererResourcesManager* const owner,
-            const MapRendererResourceType type,
-            const IMapDataProvider::SourceType sourceType);
+            const MapRendererResourceType type);
 
-        Concurrent::Task* _requestTask;
+        CancelResourceRequestSignature _cancelRequestCallback;
 
         std::shared_ptr<const IMapDataProvider::RetainableCacheMetadata> _retainableCacheMetadata;
 
@@ -37,7 +39,15 @@ namespace OsmAnd
         virtual bool updatesPresent();
         virtual bool checkForUpdatesAndApply();
         
-        virtual bool obtainData(bool& dataAvailable, const IQueryController* queryController = nullptr) = 0;
+        typedef std::function < void(const bool requestSucceeded, const bool dataAvailable) > ObtainDataAsyncCallback;
+        virtual bool supportsObtainDataAsync() const = 0;
+        virtual bool obtainData(
+            bool& dataAvailable,
+            const std::shared_ptr<const IQueryController>& queryController = nullptr) = 0;
+        virtual void obtainDataAsync(
+            const ObtainDataAsyncCallback callback,
+            const std::shared_ptr<const IQueryController>& queryController = nullptr) = 0;
+
         virtual bool uploadToGPU() = 0;
         virtual void unloadFromGPU() = 0;
         virtual void lostDataInGPU() = 0;
@@ -49,7 +59,6 @@ namespace OsmAnd
 
         MapRendererResourcesManager* const resourcesManager;
         const MapRendererResourceType type;
-        const IMapDataProvider::SourceType sourceType;
 
         const bool& isJunk;
 

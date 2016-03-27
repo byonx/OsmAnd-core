@@ -47,49 +47,33 @@ bool OsmAnd::AtlasMapRenderer::updateInternalState(
     internalState->targetInTileOffsetN.x = static_cast<float>(inTileOffset.x) / tileSize31;
     internalState->targetInTileOffsetN.y = static_cast<float>(inTileOffset.y) / tileSize31;
 
-    // Sort visible tiles by distance from target
-    qSort(internalState->visibleTiles.begin(), internalState->visibleTiles.end(),
-        [internalState]
-        (const TileId& l, const TileId& r) -> bool
-        {
-            const auto lx = l.x - internalState->targetTileId.x;
-            const auto ly = l.y - internalState->targetTileId.y;
-
-            const auto rx = r.x - internalState->targetTileId.x;
-            const auto ry = r.y - internalState->targetTileId.y;
-
-            return (lx*lx + ly*ly) > (rx*rx + ry*ry);
-        });
-
     return true;
 }
 
 bool OsmAnd::AtlasMapRenderer::prePrepareFrame()
 {
+    const auto internalState = static_cast<AtlasMapRendererInternalState*>(getInternalStateRef());
+
     if (!MapRenderer::prePrepareFrame())
         return false;
-
-    // Get set of tiles that are unique: visible tiles may contain same tiles, but wrapped
-    const auto internalState = static_cast<AtlasMapRendererInternalState*>(getInternalStateRef());
-    _uniqueTiles.clear();
-    for (const auto& tileId : constOf(internalState->visibleTiles))
-        _uniqueTiles.insert(Utilities::normalizeTileId(tileId, currentState.zoomLevel));
 
     return true;
 }
 
 bool OsmAnd::AtlasMapRenderer::postPrepareFrame()
 {
+    const auto internalState = static_cast<AtlasMapRendererInternalState*>(getInternalStateRef());
+
     if (!MapRenderer::postPrepareFrame())
         return false;
 
     // Notify resources manager about new active zone
-    getResources().updateActiveZone(_uniqueTiles, currentState.zoomLevel);
+    getResources().updateActiveZone(internalState->targetTileId, internalState->uniqueTiles, currentState.zoomLevel);
 
     return true;
 }
 
-QList<OsmAnd::TileId> OsmAnd::AtlasMapRenderer::getVisibleTiles() const
+QVector<OsmAnd::TileId> OsmAnd::AtlasMapRenderer::getVisibleTiles() const
 {
     QReadLocker scopedLocker(&_internalStateLock);
     const auto internalState = static_cast<const AtlasMapRendererInternalState*>(getInternalStateRef());
@@ -114,7 +98,9 @@ uint32_t OsmAnd::AtlasMapRenderer::getConfigurationChangeMask(
     const auto current = std::dynamic_pointer_cast<const AtlasMapRendererConfiguration>(current_);
     const auto updated = std::dynamic_pointer_cast<const AtlasMapRendererConfiguration>(updated_);
 
-    const bool referenceTileSizeChanged = !qFuzzyCompare(current->referenceTileSizeOnScreenInPixels, updated->referenceTileSizeOnScreenInPixels);
+    const bool referenceTileSizeChanged = !qFuzzyCompare(
+        current->referenceTileSizeOnScreenInPixels,
+        updated->referenceTileSizeOnScreenInPixels);
 
     if (referenceTileSizeChanged)
         mask |= enumToBit(ConfigurationChange::ReferenceTileSize);

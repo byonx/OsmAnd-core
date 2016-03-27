@@ -9,6 +9,7 @@
 #include "QtExtensions.h"
 #include "QtCommon.h"
 
+#include "Nullable.h"
 #include "ICU.h"
 #include "MapStyleEvaluator.h"
 #include "MapStyleEvaluationResult.h"
@@ -23,6 +24,11 @@
 #include "QCachingIterator.h"
 #include "Logging.h"
 
+//#define OSMAND_VERBOSE_MAP_PRIMITIVISER 1
+#if !defined(OSMAND_VERBOSE_MAP_PRIMITIVISER)
+#   define OSMAND_VERBOSE_MAP_PRIMITIVISER 0
+#endif // !defined(OSMAND_VERBOSE_MAP_PRIMITIVISER)
+
 OsmAnd::MapPrimitiviser_P::MapPrimitiviser_P(MapPrimitiviser* const owner_)
     : owner(owner_)
 {
@@ -36,7 +42,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
     const ZoomLevel zoom,
     const QList< std::shared_ptr<const MapObject> >& objects,
     const std::shared_ptr<Cache>& cache,
-    const IQueryController* const controller,
+    const std::shared_ptr<const IQueryController>& queryController,
     MapPrimitiviser_Metrics::Metric_primitiviseAllMapObjects* const metric)
 {
     return primitiviseAllMapObjects(
@@ -44,7 +50,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
         zoom,
         objects,
         cache,
-        controller,
+        queryController,
         metric);
 }
 
@@ -53,7 +59,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
     const ZoomLevel zoom,
     const QList< std::shared_ptr<const MapObject> >& objects,
     const std::shared_ptr<Cache>& cache,
-    const IQueryController* const controller,
+    const std::shared_ptr<const IQueryController>& queryController,
     MapPrimitiviser_Metrics::Metric_primitiviseAllMapObjects* const metric)
 {
     const Stopwatch totalStopwatch(metric != nullptr);
@@ -74,30 +80,30 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
     }
 
     // Obtain primitives:
-    MapStyleEvaluationResult evaluationResult;
+    MapStyleEvaluationResult evaluationResult(context.env->mapStyle->getValueDefinitionsCount());
 
     const Stopwatch obtainPrimitivesStopwatch(metric != nullptr);
-    obtainPrimitives(context, primitivisedObjects, objects, qMove(evaluationResult), cache, controller, metric);
+    obtainPrimitives(context, primitivisedObjects, objects, evaluationResult, cache, queryController, metric);
     if (metric)
         metric->elapsedTimeForObtainingPrimitives += obtainPrimitivesStopwatch.elapsed();
     
-    if (controller && controller->isAborted())
+    if (queryController && queryController->isAborted())
         return nullptr;
 
     // Sort and filter primitives
     const Stopwatch sortAndFilterPrimitivesStopwatch(metric != nullptr);
-    sortAndFilterPrimitives(context, primitivisedObjects);
+    sortAndFilterPrimitives(context, primitivisedObjects, metric);
     if (metric)
         metric->elapsedTimeForSortingAndFilteringPrimitives += sortAndFilterPrimitivesStopwatch.elapsed();
 
     // Obtain symbols from primitives
     const Stopwatch obtainPrimitivesSymbolsStopwatch(metric != nullptr);
-    obtainPrimitivesSymbols(context, primitivisedObjects, qMove(evaluationResult), cache, controller);
+    obtainPrimitivesSymbols(context, primitivisedObjects, evaluationResult, cache, queryController, metric);
     if (metric)
         metric->elapsedTimeForObtainingPrimitivesSymbols += obtainPrimitivesSymbolsStopwatch.elapsed();
 
     // Cleanup if aborted
-    if (controller && controller->isAborted())
+    if (queryController && queryController->isAborted())
         return nullptr;
 
     if (metric)
@@ -113,7 +119,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
     const MapSurfaceType surfaceType_,
     const QList< std::shared_ptr<const MapObject> >& objects,
     const std::shared_ptr<Cache>& cache,
-    const IQueryController* const controller,
+    const std::shared_ptr<const IQueryController>& queryController,
     MapPrimitiviser_Metrics::Metric_primitiviseWithSurface* const metric)
 {
     const Stopwatch totalStopwatch(metric != nullptr);
@@ -143,7 +149,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
     bool roadsPresent = false;
     for (const auto& mapObject : constOf(objects))
     {
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             break;
 
         //////////////////////////////////////////////////////////////////////////
@@ -161,7 +167,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
         //////////////////////////////////////////////////////////////////////////
         
         if(!mapObject->intersectedOrContainedBy(area31) &&
-           !mapObject->containsType(mapObject->encodingDecodingRules->naturalCoastline_encodingRuleId))
+           !mapObject->containsAttribute(mapObject->attributeMapping->naturalCoastlineAttributeId))
         {
             continue;
         }
@@ -181,7 +187,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
             roadsPresent = true;
         }
 
-        if (mapObject->containsType(mapObject->encodingDecodingRules->naturalCoastline_encodingRuleId))
+        if (mapObject->containsAttribute(mapObject->attributeMapping->naturalCoastlineAttributeId))
         {
             if (isBasemapObject)
                 basemapCoastlineObjects.push_back(mapObject);
@@ -196,7 +202,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
                 detailedmapMapObjects.push_back(mapObject);
         }
     }
-    if (controller && controller->isAborted())
+    if (queryController && queryController->isAborted())
         return nullptr;
 
     //////////////////////////////////////////////////////////////////////////
@@ -353,22 +359,24 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
         bgMapObject->points31.push_back(bgMapObject->points31.first());
         bgMapObject->bbox31 = area31;
         if (surfaceType == MapSurfaceType::FullWater)
-            bgMapObject->typesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->naturalCoastline_encodingRuleId);
+            bgMapObject->attributeIds.push_back(MapObject::defaultAttributeMapping->naturalCoastlineAttributeId);
         else if (surfaceType == MapSurfaceType::FullLand || surfaceType == MapSurfaceType::Mixed)
-            bgMapObject->typesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->naturalLand_encodingRuleId);
+            bgMapObject->attributeIds.push_back(MapObject::defaultAttributeMapping->naturalLandAttributeId);
         else // if (surfaceType == SurfaceType::Undefined)
         {
+#if OSMAND_VERBOSE_MAP_PRIMITIVISER
             LogPrintf(LogSeverityLevel::Warning, "Area [%d, %d, %d, %d]@%d has undefined surface type",
                 area31.top(),
                 area31.left(),
                 area31.bottom(),
                 area31.right(),
                 zoom);
+#endif // OSMAND_VERBOSE_MAP_PRIMITIVISER
 
             bgMapObject->isArea = false;
-            bgMapObject->typesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->naturalCoastlineBroken_encodingRuleId);
+            bgMapObject->attributeIds.push_back(MapObject::defaultAttributeMapping->naturalCoastlineBrokenAttributeId);
         }
-        bgMapObject->additionalTypesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->layerLowest_encodingRuleId);
+        bgMapObject->additionalAttributeIds.push_back(MapObject::defaultAttributeMapping->layerLowestAttributeId);
 
         assert(bgMapObject->isClosedFigure());
         polygonizedCoastlineObjects.push_back(qMove(bgMapObject));
@@ -395,43 +403,64 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
     }
 
     // Obtain primitives:
-    MapStyleEvaluationResult evaluationResult;
+    MapStyleEvaluationResult evaluationResult(context.env->mapStyle->getValueDefinitionsCount());
 
     const Stopwatch obtainPrimitivesFromDetailedmapStopwatch(metric != nullptr);
-    obtainPrimitives(context, primitivisedObjects, detailedmapMapObjects, qMove(evaluationResult), cache, controller, metric);
+    obtainPrimitives(
+        context,
+        primitivisedObjects,
+        detailedmapMapObjects,
+        evaluationResult,
+        cache,
+        queryController,
+        metric);
     if (metric)
         metric->elapsedTimeForObtainingPrimitivesFromDetailedmap += obtainPrimitivesFromDetailedmapStopwatch.elapsed();
 
     if ((zoom <= static_cast<ZoomLevel>(MapPrimitiviser::LastZoomToUseBasemap)) || detailedDataMissing)
     {
         const Stopwatch obtainPrimitivesFromBasemapStopwatch(metric != nullptr);
-        obtainPrimitives(context, primitivisedObjects, basemapMapObjects, qMove(evaluationResult), cache, controller, metric);
+        obtainPrimitives(
+            context,
+            primitivisedObjects,
+            basemapMapObjects,
+            evaluationResult,
+            cache,
+            queryController,
+            metric);
         if (metric)
             metric->elapsedTimeForObtainingPrimitivesFromBasemap += obtainPrimitivesFromBasemapStopwatch.elapsed();
     }
 
     const Stopwatch obtainPrimitivesFromCoastlinesStopwatch(metric != nullptr);
-    obtainPrimitives(context, primitivisedObjects, polygonizedCoastlineObjects, qMove(evaluationResult), cache, controller, metric);
+    obtainPrimitives(
+        context,
+        primitivisedObjects,
+        polygonizedCoastlineObjects,
+        evaluationResult,
+        cache,
+        queryController,
+        metric);
     if (metric)
         metric->elapsedTimeForObtainingPrimitivesFromCoastlines += obtainPrimitivesFromCoastlinesStopwatch.elapsed();
 
-    if (controller && controller->isAborted())
+    if (queryController && queryController->isAborted())
         return nullptr;
 
     // Sort and filter primitives
     const Stopwatch sortAndFilterPrimitivesStopwatch(metric != nullptr);
-    sortAndFilterPrimitives(context, primitivisedObjects);
+    sortAndFilterPrimitives(context, primitivisedObjects, metric);
     if (metric)
         metric->elapsedTimeForSortingAndFilteringPrimitives += sortAndFilterPrimitivesStopwatch.elapsed();
 
     // Obtain symbols from primitives
     const Stopwatch obtainPrimitivesSymbolsStopwatch(metric != nullptr);
-    obtainPrimitivesSymbols(context, primitivisedObjects, qMove(evaluationResult), cache, controller);
+    obtainPrimitivesSymbols(context, primitivisedObjects, evaluationResult, cache, queryController, metric);
     if (metric)
         metric->elapsedTimeForObtainingPrimitivesSymbols += obtainPrimitivesSymbolsStopwatch.elapsed();
 
     // Cleanup if aborted
-    if (controller && controller->isAborted())
+    if (queryController && queryController->isAborted())
         return nullptr;
 
     if (metric)
@@ -445,7 +474,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
     const ZoomLevel zoom,
     const QList< std::shared_ptr<const MapObject> >& objects,
     const std::shared_ptr<Cache>& cache,
-    const IQueryController* const controller,
+    const std::shared_ptr<const IQueryController>& queryController,
     MapPrimitiviser_Metrics::Metric_primitiviseWithoutSurface* const metric)
 {
     const Stopwatch totalStopwatch(metric != nullptr);
@@ -463,7 +492,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
     QList< std::shared_ptr<const MapObject> > detailedmapMapObjects, basemapMapObjects;
     for (const auto& mapObject : constOf(objects))
     {
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             break;
 
         // Check if this map object is from basemap
@@ -475,7 +504,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
                 continue;
         }
 
-        if (!mapObject->containsType(mapObject->encodingDecodingRules->naturalCoastline_encodingRuleId))
+        if (!mapObject->containsAttribute(mapObject->attributeMapping->naturalCoastlineAttributeId))
         {
             if (isBasemapObject)
                 basemapMapObjects.push_back(mapObject);
@@ -483,7 +512,7 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
                 detailedmapMapObjects.push_back(mapObject);
         }
     }
-    if (controller && controller->isAborted())
+    if (queryController && queryController->isAborted())
         return nullptr;
 
     if (metric)
@@ -504,38 +533,38 @@ std::shared_ptr<OsmAnd::MapPrimitiviser_P::PrimitivisedObjects> OsmAnd::MapPrimi
     }
 
     // Obtain primitives:
-    MapStyleEvaluationResult evaluationResult;
+    MapStyleEvaluationResult evaluationResult(context.env->mapStyle->getValueDefinitionsCount());
 
     const Stopwatch obtainPrimitivesFromDetailedmapStopwatch(metric != nullptr);
-    obtainPrimitives(context, primitivisedObjects, detailedmapMapObjects, qMove(evaluationResult), cache, controller, metric);
+    obtainPrimitives(context, primitivisedObjects, detailedmapMapObjects, evaluationResult, cache, queryController, metric);
     if (metric)
         metric->elapsedTimeForObtainingPrimitivesFromDetailedmap += obtainPrimitivesFromDetailedmapStopwatch.elapsed();
 
     if ((zoom <= static_cast<ZoomLevel>(MapPrimitiviser::LastZoomToUseBasemap)) || detailedDataMissing)
     {
         const Stopwatch obtainPrimitivesFromBasemapStopwatch(metric != nullptr);
-        obtainPrimitives(context, primitivisedObjects, basemapMapObjects, qMove(evaluationResult), cache, controller, metric);
+        obtainPrimitives(context, primitivisedObjects, basemapMapObjects, evaluationResult, cache, queryController, metric);
         if (metric)
             metric->elapsedTimeForObtainingPrimitivesFromBasemap += obtainPrimitivesFromBasemapStopwatch.elapsed();
     }
 
-    if (controller && controller->isAborted())
+    if (queryController && queryController->isAborted())
         return nullptr;
 
     // Sort and filter primitives
     const Stopwatch sortAndFilterPrimitivesStopwatch(metric != nullptr);
-    sortAndFilterPrimitives(context, primitivisedObjects);
+    sortAndFilterPrimitives(context, primitivisedObjects, metric);
     if (metric)
         metric->elapsedTimeForSortingAndFilteringPrimitives += sortAndFilterPrimitivesStopwatch.elapsed();
 
     // Obtain symbols from primitives
     const Stopwatch obtainPrimitivesSymbolsStopwatch(metric != nullptr);
-    obtainPrimitivesSymbols(context, primitivisedObjects, qMove(evaluationResult), cache, controller);
+    obtainPrimitivesSymbols(context, primitivisedObjects, evaluationResult, cache, queryController, metric);
     if (metric)
         metric->elapsedTimeForObtainingPrimitivesSymbols += obtainPrimitivesSymbolsStopwatch.elapsed();
 
     // Cleanup if aborted
-    if (controller && controller->isAborted())
+    if (queryController && queryController->isAborted())
         return nullptr;
 
     if (metric)
@@ -579,10 +608,12 @@ bool OsmAnd::MapPrimitiviser_P::polygonizeCoastlines(
     {
         if (coastline->points31.size() < 2)
         {
+#if OSMAND_VERBOSE_MAP_PRIMITIVISER
             LogPrintf(LogSeverityLevel::Warning,
                 "MapObject %s is primitivised as coastline, but has %d vertices",
                 qPrintable(coastline->toString()),
                 coastline->points31.size());
+#endif // OSMAND_VERBOSE_MAP_PRIMITIVISER
             continue;
         }
 
@@ -624,7 +655,7 @@ bool OsmAnd::MapPrimitiviser_P::polygonizeCoastlines(
         const std::shared_ptr<MapObject> mapObject(new CoastlineMapObject());
         mapObject->isArea = false;
         mapObject->points31 = polyline;
-        mapObject->typesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->naturalCoastlineLine_encodingRuleId);
+        mapObject->attributeIds.push_back(MapObject::defaultAttributeMapping->naturalCoastlineLineAttributeId);
 
         outVectorized.push_back(qMove(mapObject));
     }
@@ -642,7 +673,7 @@ bool OsmAnd::MapPrimitiviser_P::polygonizeCoastlines(
         mapObject->bbox31 = area31;
         convertCoastlinePolylinesToPolygons(area31, coastlinePolylines, mapObject->innerPolygonsPoints31);
 
-        mapObject->typesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->naturalCoastline_encodingRuleId);
+        mapObject->attributeIds.push_back(MapObject::defaultAttributeMapping->naturalCoastlineAttributeId);
         mapObject->isArea = true;
 
         assert(mapObject->isClosedFigure());
@@ -652,12 +683,14 @@ bool OsmAnd::MapPrimitiviser_P::polygonizeCoastlines(
 
     if (!coastlinePolylines.isEmpty())
     {
+#if OSMAND_VERBOSE_MAP_PRIMITIVISER
         LogPrintf(OsmAnd::LogSeverityLevel::Warning, "Invalid polylines found during primitivisation of coastlines in area [%d, %d, %d, %d]@%d",
             area31.top(),
             area31.left(),
             area31.bottom(),
             area31.right(),
             zoom);
+#endif // OSMAND_VERBOSE_MAP_PRIMITIVISER
     }
 
     if (includeBrokenCoastlines)
@@ -667,7 +700,7 @@ bool OsmAnd::MapPrimitiviser_P::polygonizeCoastlines(
             const std::shared_ptr<MapObject> mapObject(new CoastlineMapObject());
             mapObject->isArea = false;
             mapObject->points31 = polygon;
-            mapObject->typesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->naturalCoastlineBroken_encodingRuleId);
+            mapObject->attributeIds.push_back(MapObject::defaultAttributeMapping->naturalCoastlineBrokenAttributeId);
 
             outVectorized.push_back(qMove(mapObject));
         }
@@ -679,7 +712,7 @@ bool OsmAnd::MapPrimitiviser_P::polygonizeCoastlines(
         const std::shared_ptr<MapObject> mapObject(new CoastlineMapObject());
         mapObject->isArea = false;
         mapObject->points31 = polygon;
-        mapObject->typesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->naturalCoastlineLine_encodingRuleId);
+        mapObject->attributeIds.push_back(MapObject::defaultAttributeMapping->naturalCoastlineLineAttributeId);
 
         outVectorized.push_back(qMove(mapObject));
     }
@@ -701,12 +734,12 @@ bool OsmAnd::MapPrimitiviser_P::polygonizeCoastlines(
         mapObject->points31 = qMove(polygon);
         if (clockwise)
         {
-            mapObject->typesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->naturalCoastline_encodingRuleId);
+            mapObject->attributeIds.push_back(MapObject::defaultAttributeMapping->naturalCoastlineAttributeId);
             fullWaterObjects++;
         }
         else
         {
-            mapObject->typesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->naturalLand_encodingRuleId);
+            mapObject->attributeIds.push_back(MapObject::defaultAttributeMapping->naturalLandAttributeId);
             fullLandObjects++;
         }
         mapObject->isArea = true;
@@ -717,12 +750,14 @@ bool OsmAnd::MapPrimitiviser_P::polygonizeCoastlines(
 
     if (fullWaterObjects == 0u && !coastlineCrossesBounds)
     {
+#if OSMAND_VERBOSE_MAP_PRIMITIVISER
         LogPrintf(LogSeverityLevel::Warning, "Isolated islands found during primitivisation of coastlines in area [%d, %d, %d, %d]@%d",
             area31.top(),
             area31.left(),
             area31.bottom(),
             area31.right(),
             zoom);
+#endif // OSMAND_VERBOSE_MAP_PRIMITIVISER
 
         // Add complete water tile
         const std::shared_ptr<MapObject> mapObject(new CoastlineMapObject());
@@ -733,7 +768,7 @@ bool OsmAnd::MapPrimitiviser_P::polygonizeCoastlines(
         mapObject->points31.push_back(mapObject->points31.first());
         mapObject->bbox31 = area31;
 
-        mapObject->typesRuleIds.push_back(MapObject::defaultEncodingDecodingRules->naturalCoastline_encodingRuleId);
+        mapObject->attributeIds.push_back(MapObject::defaultAttributeMapping->naturalCoastlineAttributeId);
         mapObject->isArea = true;
 
         assert(mapObject->isClosedFigure());
@@ -1190,38 +1225,36 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitives(
     const Context& context,
     const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects,
     const QList< std::shared_ptr<const OsmAnd::MapObject> >& source,
-#ifdef Q_COMPILER_RVALUE_REFS
-    MapStyleEvaluationResult&& evaluationResult,
-#else
     MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
     const std::shared_ptr<Cache>& cache,
-    const IQueryController* const controller,
+    const std::shared_ptr<const IQueryController>& queryController,
     MapPrimitiviser_Metrics::Metric_primitivise* const metric)
 {
     const auto& env = context.env;
     const auto zoom = primitivisedObjects->zoom;
 
+    const Stopwatch obtainPrimitivesStopwatch(metric != nullptr);
+
     // Initialize shared settings for order evaluation
-    MapStyleEvaluator orderEvaluator(env->resolvedStyle, env->displayDensityFactor * env->mapScaleFactor);
+    MapStyleEvaluator orderEvaluator(env->mapStyle, env->displayDensityFactor * env->mapScaleFactor);
     env->applyTo(orderEvaluator);
     orderEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MINZOOM, zoom);
     orderEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MAXZOOM, zoom);
 
     // Initialize shared settings for polygon evaluation
-    MapStyleEvaluator polygonEvaluator(env->resolvedStyle, env->displayDensityFactor * env->mapScaleFactor);
+    MapStyleEvaluator polygonEvaluator(env->mapStyle, env->displayDensityFactor * env->mapScaleFactor);
     env->applyTo(polygonEvaluator);
     polygonEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MINZOOM, zoom);
     polygonEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MAXZOOM, zoom);
 
     // Initialize shared settings for polyline evaluation
-    MapStyleEvaluator polylineEvaluator(env->resolvedStyle, env->displayDensityFactor * env->mapScaleFactor);
+    MapStyleEvaluator polylineEvaluator(env->mapStyle, env->displayDensityFactor * env->mapScaleFactor);
     env->applyTo(polylineEvaluator);
     polylineEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MINZOOM, zoom);
     polylineEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MAXZOOM, zoom);
 
     // Initialize shared settings for point evaluation
-    MapStyleEvaluator pointEvaluator(env->resolvedStyle, env->displayDensityFactor * env->mapScaleFactor);
+    MapStyleEvaluator pointEvaluator(env->mapStyle, env->displayDensityFactor * env->mapScaleFactor);
     env->applyTo(pointEvaluator);
     pointEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MINZOOM, zoom);
     pointEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MAXZOOM, zoom);
@@ -1231,14 +1264,14 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitives(
     for (const auto& mapObject : constOf(source))
     {
         //////////////////////////////////////////////////////////////////////////
-        //if (mapObject->toString().contains("49048972"))
+        //if (mapObject->toString().contains("1333827773"))
         //{
         //    const auto t = mapObject->toString();
         //    int i = 5;
         //}
         //////////////////////////////////////////////////////////////////////////
 
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             return;
 
         MapObject::SharingKey sharingKey;
@@ -1277,7 +1310,7 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitives(
             context,
             primitivisedObjects,
             mapObject,
-            qMove(evaluationResult),
+            evaluationResult,
             orderEvaluator,
             polygonEvaluator,
             polylineEvaluator,
@@ -1315,17 +1348,16 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitives(
     }
     if (metric)
         metric->elapsedTimeForFutureSharedPrimitivesGroups += futureSharedPrimitivesGroupsStopwatch.elapsed();
+
+    if (metric)
+        metric->elapsedTimeForPrimitives += obtainPrimitivesStopwatch.elapsed();
 }
 
 std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPrimitiviser_P::obtainPrimitivesGroup(
     const Context& context,
     const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects,
     const std::shared_ptr<const MapObject>& mapObject,
-#ifdef Q_COMPILER_RVALUE_REFS
-    MapStyleEvaluationResult&& evaluationResult,
-#else
     MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
     MapStyleEvaluator& orderEvaluator,
     MapStyleEvaluator& polygonEvaluator,
     MapStyleEvaluator& polylineEvaluator,
@@ -1346,11 +1378,23 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
     //}
     //////////////////////////////////////////////////////////////////////////
 
-    uint32_t typeRuleIdIndex = 0;
-    const auto& decRules = mapObject->encodingDecodingRules->decodingRules;
-    for (auto itTypeRuleId = cachingIteratorOf(constOf(mapObject->typesRuleIds)); itTypeRuleId; ++itTypeRuleId, typeRuleIdIndex++)
+    double doubledPolygonArea31 = -1.0;
+    Nullable<bool> rejectByArea;
+
+    // Setup mapObject-specific input data
+    const auto layerType = mapObject->getLayerType();
+    orderEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_LAYER, static_cast<int>(layerType));
+    orderEvaluator.setBooleanValue(env->styleBuiltinValueDefs->id_INPUT_AREA, mapObject->isArea);
+    orderEvaluator.setBooleanValue(env->styleBuiltinValueDefs->id_INPUT_POINT, mapObject->points31.size() == 1);
+    orderEvaluator.setBooleanValue(env->styleBuiltinValueDefs->id_INPUT_CYCLE, mapObject->isClosedFigure());
+    polylineEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_LAYER, static_cast<int>(layerType));
+
+    const auto& decRules = mapObject->attributeMapping->decodeMap;
+    auto pAttributeId = mapObject->attributeIds.constData();
+    const auto attributeIdsCount = mapObject->attributeIds.size();
+    for (auto attributeIdIndex = 0; attributeIdIndex < attributeIdsCount; attributeIdIndex++, pAttributeId++)
     {
-        const auto& decodedType = decRules[*itTypeRuleId];
+        const auto& decodedAttribute = decRules[*pAttributeId];
 
         //////////////////////////////////////////////////////////////////////////
         //if (mapObject->toString().contains("49048972"))
@@ -1362,13 +1406,9 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
 
         const Stopwatch orderEvaluationStopwatch(metric != nullptr);
 
-        // Setup mapObject-specific input data
-        orderEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedType.tag);
-        orderEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedType.value);
-        orderEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_LAYER, static_cast<int>(mapObject->getLayerType()));
-        orderEvaluator.setBooleanValue(env->styleBuiltinValueDefs->id_INPUT_AREA, mapObject->isArea);
-        orderEvaluator.setBooleanValue(env->styleBuiltinValueDefs->id_INPUT_POINT, mapObject->points31.size() == 1);
-        orderEvaluator.setBooleanValue(env->styleBuiltinValueDefs->id_INPUT_CYCLE, mapObject->isClosedFigure());
+        // Setup tag+value-specific input data
+        orderEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedAttribute.tag);
+        orderEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedAttribute.value);
 
         evaluationResult.clear();
         ok = orderEvaluator.evaluate(mapObject, MapStyleRulesetType::Order, &evaluationResult);
@@ -1379,11 +1419,16 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
             metric->orderEvaluations++;
         }
 
+        const Stopwatch orderProcessingStopwatch(metric != nullptr);
+
         // If evaluation failed, skip
         if (!ok)
         {
             if (metric)
+            {
+                metric->elapsedTimeForOrderProcessing += orderProcessingStopwatch.elapsed();
                 metric->orderRejects++;
+            }
 
             continue;
         }
@@ -1392,7 +1437,10 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
         if (!evaluationResult.getIntegerValue(env->styleBuiltinValueDefs->id_OUTPUT_OBJECT_TYPE, objectType_))
         {
             if (metric)
+            {
+                metric->elapsedTimeForOrderProcessing += orderProcessingStopwatch.elapsed();
                 metric->orderRejects++;
+            }
 
             continue;
         }
@@ -1402,7 +1450,10 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
         if (!evaluationResult.getIntegerValue(env->styleBuiltinValueDefs->id_OUTPUT_ORDER, zOrder) || zOrder < 0)
         {
             if (metric)
+            {
+                metric->elapsedTimeForOrderProcessing += orderProcessingStopwatch.elapsed();
                 metric->orderRejects++;
+            }
 
             continue;
         }
@@ -1412,27 +1463,44 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
 
         if (objectType == PrimitiveType::Polygon)
         {
+            const Stopwatch polygonProcessingStopwatch(metric != nullptr);
+
             // Perform checks on data
             if (mapObject->points31.size() <= 2)
             {
+                if (metric)
+                    metric->elapsedTimeForPolygonProcessing += polygonProcessingStopwatch.elapsed();
+
+#if OSMAND_VERBOSE_MAP_PRIMITIVISER
                 LogPrintf(LogSeverityLevel::Warning,
                     "MapObject %s primitive is processed as polygon, but has only %d point(s)",
                     qPrintable(mapObject->toString()),
                     mapObject->points31.size());
+#endif // OSMAND_VERBOSE_MAP_PRIMITIVISER
                 continue;
             }
             if (!mapObject->isClosedFigure())
             {
+                if (metric)
+                    metric->elapsedTimeForPolygonProcessing += polygonProcessingStopwatch.elapsed();
+
+#if OSMAND_VERBOSE_MAP_PRIMITIVISER
                 LogPrintf(LogSeverityLevel::Warning,
                     "MapObject %s primitive is processed as polygon, but isn't closed",
                     qPrintable(mapObject->toString()));
+#endif // OSMAND_VERBOSE_MAP_PRIMITIVISER
                 continue;
             }
             if (!mapObject->isClosedFigure(true))
             {
+                if (metric)
+                    metric->elapsedTimeForPolygonProcessing += polygonProcessingStopwatch.elapsed();
+
+#if OSMAND_VERBOSE_MAP_PRIMITIVISER
                 LogPrintf(LogSeverityLevel::Warning,
                     "MapObject %s primitive is processed as polygon, but isn't closed (inner)",
                     qPrintable(mapObject->toString()));
+#endif // OSMAND_VERBOSE_MAP_PRIMITIVISER
                 continue;
             }
 
@@ -1444,15 +1512,20 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
             //////////////////////////////////////////////////////////////////////////
 
             // Check size of polygon
-            bool ignorePolygonArea = false;
-            evaluationResult.getBooleanValue(env->styleBuiltinValueDefs->id_OUTPUT_IGNORE_POLYGON_AREA, ignorePolygonArea);
-            bool ignorePolygonAsPointArea = false;
+            auto ignorePolygonArea = false;
+            evaluationResult.getBooleanValue(
+                env->styleBuiltinValueDefs->id_OUTPUT_IGNORE_POLYGON_AREA,
+                ignorePolygonArea);
+
+            auto ignorePolygonAsPointArea = false;
             evaluationResult.getBooleanValue(
                 env->styleBuiltinValueDefs->id_OUTPUT_IGNORE_POLYGON_AS_POINT_AREA,
                 ignorePolygonAsPointArea);
-            const auto doubledPolygonArea31 = Utilities::doubledPolygonArea(mapObject->points31);
-            auto rejectByArea = false;
-            if (!ignorePolygonArea)
+
+            if (doubledPolygonArea31 < 0.0)
+                doubledPolygonArea31 = Utilities::doubledPolygonArea(mapObject->points31);
+
+            if ((!ignorePolygonArea || !ignorePolygonAsPointArea) && !rejectByArea.isSet())
             {
                 const auto polygonArea31 = static_cast<double>(doubledPolygonArea31)* 0.5;
                 const auto areaScaleDivisor31ToPixel =
@@ -1466,13 +1539,13 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
                     polygonAreaInAbstractPixels <= context.polygonAreaMinimalThreshold;
             }
 
-            if (!rejectByArea)
+            if (!*rejectByArea || ignorePolygonArea)
             {
                 const Stopwatch polygonEvaluationStopwatch(metric != nullptr);
 
-                // Setup mapObject-specific input data (for Polygon)
-                polygonEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedType.tag);
-                polygonEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedType.value);
+                // Setup tag+value-specific input data (for Polygon)
+                polygonEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedAttribute.tag);
+                polygonEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedAttribute.value);
 
                 // Evaluate style for this primitive to check if it passes (for Polygon)
                 evaluationResult.clear();
@@ -1491,8 +1564,8 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
                     const std::shared_ptr<Primitive> primitive(new Primitive(
                         group,
                         objectType,
-                        typeRuleIdIndex,
-                        qMove(evaluationResult)));
+                        attributeIdIndex,
+                        evaluationResult));
                     primitive->zOrder = (std::dynamic_pointer_cast<const SurfaceMapObject>(mapObject) || std::dynamic_pointer_cast<const CoastlineMapObject>(mapObject))
                         ? std::numeric_limits<int>::min()
                         : zOrder;
@@ -1517,13 +1590,16 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
                     metric->polygonsRejectedByArea++;
             }
 
-            if (!rejectByArea || ignorePolygonAsPointArea)
+            if (metric)
+                metric->elapsedTimeForPolygonProcessing += polygonProcessingStopwatch.elapsed();
+
+            if (!*rejectByArea || ignorePolygonAsPointArea)
             {
                 const Stopwatch pointEvaluationStopwatch(metric != nullptr);
 
-                // Setup mapObject-specific input data (for Point)
-                pointEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedType.tag);
-                pointEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedType.value);
+                // Setup tag+value-specific input data (for Point)
+                pointEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedAttribute.tag);
+                pointEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedAttribute.value);
 
                 // Evaluate Point rules
                 evaluationResult.clear();
@@ -1536,6 +1612,8 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
                     metric->pointEvaluations++;
                 }
 
+                const Stopwatch pointProcessingStopwatch(metric != nullptr);
+
                 // Create point primitive only in case polygon has any content
                 if (!mapObject->captions.isEmpty() || hasIcon)
                 {
@@ -1547,15 +1625,15 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
                         pointPrimitive.reset(new Primitive(
                             group,
                             PrimitiveType::Point,
-                            typeRuleIdIndex,
-                            qMove(evaluationResult)));
+                            attributeIdIndex,
+                            evaluationResult));
                     }
                     else
                     {
                         pointPrimitive.reset(new Primitive(
                             group,
                             PrimitiveType::Point,
-                            typeRuleIdIndex));
+                            attributeIdIndex));
                     }
                     pointPrimitive->zOrder = (std::dynamic_pointer_cast<const SurfaceMapObject>(mapObject) || std::dynamic_pointer_cast<const CoastlineMapObject>(mapObject))
                         ? std::numeric_limits<int>::min()
@@ -1568,6 +1646,9 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
                     if (metric)
                         metric->pointPrimitives++;
                 }
+
+                if (metric)
+                    metric->elapsedTimeForPointProcessing += pointProcessingStopwatch.elapsed();
             }
         }
         else if (objectType == PrimitiveType::Polyline)
@@ -1575,19 +1656,20 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
             // Perform checks on data
             if (mapObject->points31.size() < 2)
             {
+#if OSMAND_VERBOSE_MAP_PRIMITIVISER
                 LogPrintf(LogSeverityLevel::Warning,
                     "MapObject %s is processed as polyline, but has %d point(s)",
                     qPrintable(mapObject->toString()),
                     mapObject->points31.size());
+#endif // OSMAND_VERBOSE_MAP_PRIMITIVISER
                 continue;
             }
 
             const Stopwatch polylineEvaluationStopwatch(metric != nullptr);
 
-            // Setup mapObject-specific input data
-            polylineEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedType.tag);
-            polylineEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedType.value);
-            polylineEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_LAYER, static_cast<int>(mapObject->getLayerType()));
+            // Setup tag+value-specific input data
+            polylineEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedAttribute.tag);
+            polylineEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedAttribute.value);
 
             // Evaluate style for this primitive to check if it passes
             evaluationResult.clear();
@@ -1599,11 +1681,16 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
                 metric->polylineEvaluations++;
             }
 
+            const Stopwatch polylineProcessingStopwatch(metric != nullptr);
+
             // If evaluation failed, skip
             if (!ok)
             {
                 if (metric)
+                {
+                    metric->elapsedTimeForPolylineProcessing += polylineProcessingStopwatch.elapsed();
                     metric->polylineRejects++;
+                }
 
                 continue;
             }
@@ -1612,8 +1699,8 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
             const std::shared_ptr<Primitive> primitive(new Primitive(
                 group,
                 objectType,
-                typeRuleIdIndex,
-                qMove(evaluationResult)));
+                attributeIdIndex,
+                evaluationResult));
             primitive->zOrder = zOrder;
 
             // Accept this primitive
@@ -1621,24 +1708,29 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
 
             // Update metric
             if (metric)
+            {
+                metric->elapsedTimeForPolylineProcessing += polylineProcessingStopwatch.elapsed();
                 metric->polylinePrimitives++;
+            }
         }
         else if (objectType == PrimitiveType::Point)
         {
             // Perform checks on data
             if (mapObject->points31.size() < 1)
             {
+#if OSMAND_VERBOSE_MAP_PRIMITIVISER
                 LogPrintf(LogSeverityLevel::Warning,
                     "MapObject %s is processed as point, but has no point",
                     qPrintable(mapObject->toString()));
+#endif // OSMAND_VERBOSE_MAP_PRIMITIVISER
                 continue;
             }
 
             const Stopwatch pointEvaluationStopwatch(metric != nullptr);
 
-            // Setup mapObject-specific input data
-            pointEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedType.tag);
-            pointEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedType.value);
+            // Setup tag+value-specific input data
+            pointEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedAttribute.tag);
+            pointEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedAttribute.value);
 
             // Evaluate Point rules
             evaluationResult.clear();
@@ -1651,11 +1743,16 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
                 metric->pointEvaluations++;
             }
 
+            const Stopwatch pointProcessingStopwatch(metric != nullptr);
+
             // Create point primitive only in case polygon has any content
             if (mapObject->captions.isEmpty() && !hasIcon)
             {
                 if (metric)
+                {
+                    metric->elapsedTimeForPointProcessing += pointProcessingStopwatch.elapsed();
                     metric->pointRejects++;
+                }
 
                 continue;
             }
@@ -1668,15 +1765,15 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
                 primitive.reset(new Primitive(
                     group,
                     PrimitiveType::Point,
-                    typeRuleIdIndex,
-                    qMove(evaluationResult)));
+                    attributeIdIndex,
+                    evaluationResult));
             }
             else
             {
                 primitive.reset(new Primitive(
                     group,
                     PrimitiveType::Point,
-                    typeRuleIdIndex));
+                    attributeIdIndex));
             }
             primitive->zOrder = zOrder;
 
@@ -1685,7 +1782,10 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
 
             // Update metric
             if (metric)
+            {
+                metric->elapsedTimeForPointProcessing += pointProcessingStopwatch.elapsed();
                 metric->pointPrimitives++;
+            }
         }
         else
         {
@@ -1705,7 +1805,8 @@ std::shared_ptr<const OsmAnd::MapPrimitiviser_P::PrimitivesGroup> OsmAnd::MapPri
 
 void OsmAnd::MapPrimitiviser_P::sortAndFilterPrimitives(
     const Context& context,
-    const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects)
+    const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects,
+    MapPrimitiviser_Metrics::Metric_primitivise* const metric)
 {
     const MapObject::Comparator mapObjectsComparator;
     const auto privitivesSort =
@@ -1721,11 +1822,11 @@ void OsmAnd::MapPrimitiviser_P::sortAndFilterPrimitives(
                 return l->doubledArea > r->doubledArea;
 
             // Then sort by tag=value ordering (this is possible only inside same object)
-            if (l->typeRuleIdIndex != r->typeRuleIdIndex && l->sourceObject == r->sourceObject)
+            if (l->attributeIdIndex != r->attributeIdIndex && l->sourceObject == r->sourceObject)
             {
                 if (l->type == PrimitiveType::Polygon)
-                    return l->typeRuleIdIndex > r->typeRuleIdIndex;
-                return l->typeRuleIdIndex < r->typeRuleIdIndex;
+                    return l->attributeIdIndex > r->attributeIdIndex;
+                return l->attributeIdIndex < r->attributeIdIndex;
             }
 
             // Then sort by number of points
@@ -1738,15 +1839,16 @@ void OsmAnd::MapPrimitiviser_P::sortAndFilterPrimitives(
             return mapObjectsComparator(l->sourceObject, r->sourceObject);
         };
 
-    qSort(primitivisedObjects->polygons.begin(), primitivisedObjects->polygons.end(), privitivesSort);
-    qSort(primitivisedObjects->polylines.begin(), primitivisedObjects->polylines.end(), privitivesSort);
-    filterOutHighwaysByDensity(context, primitivisedObjects);
-    qSort(primitivisedObjects->points.begin(), primitivisedObjects->points.end(), privitivesSort);
+    std::sort(primitivisedObjects->polygons, privitivesSort);
+    std::sort(primitivisedObjects->polylines, privitivesSort);
+    filterOutHighwaysByDensity(context, primitivisedObjects, metric);
+    std::sort(primitivisedObjects->points, privitivesSort);
 }
 
 void OsmAnd::MapPrimitiviser_P::filterOutHighwaysByDensity(
     const Context& context,
-    const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects)
+    const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects,
+    MapPrimitiviser_Metrics::Metric_primitivise* const metric)
 {
     // Check if any filtering needed
     if (context.roadDensityZoomTile == 0 || context.roadsDensityLimitPerTile == 0)
@@ -1755,56 +1857,69 @@ void OsmAnd::MapPrimitiviser_P::filterOutHighwaysByDensity(
     const auto dZ = primitivisedObjects->zoom + context.roadDensityZoomTile;
     QHash< uint64_t, std::pair<uint32_t, double> > densityMap;
 
-    auto itLine = mutableIteratorOf(primitivisedObjects->polylines);
-    itLine.toBack();
-    while (itLine.hasPrevious())
+    auto itPolyline = mutableIteratorOf(primitivisedObjects->polylines);
+    itPolyline.toBack();
+    while (itPolyline.hasPrevious())
     {
-        const auto& line = itLine.previous();
+        const auto& polyline = itPolyline.previous();
+        const auto& sourceObject = polyline->sourceObject;
 
-        auto accept = true;
-        if (line->sourceObject->typesRuleIds[line->typeRuleIdIndex] == line->sourceObject->encodingDecodingRules->highway_encodingRuleId)
+        // If polyline is not road, it should be accepted
+        const auto pPrimitiveAttribute = sourceObject->resolveAttributeByIndex(polyline->attributeIdIndex);
+        if (!pPrimitiveAttribute)
+            continue;
+        if (pPrimitiveAttribute->tag != QLatin1String("highway"))
+            continue;
+
+        auto accept = false;
+        uint64_t prevId = 0;
+        const auto pointsCount = sourceObject->points31.size();
+        auto pPoint = sourceObject->points31.constData();
+        for (auto pointIdx = 0; pointIdx < pointsCount; pointIdx++, pPoint++)
         {
-            accept = false;
-
-            uint64_t prevId = 0;
-            const auto pointsCount = line->sourceObject->points31.size();
-            auto pPoint = line->sourceObject->points31.constData();
-            for (auto pointIdx = 0; pointIdx < pointsCount; pointIdx++, pPoint++)
+            auto x = pPoint->x >> (MaxZoomLevel - dZ);
+            auto y = pPoint->y >> (MaxZoomLevel - dZ);
+            uint64_t id = (static_cast<uint64_t>(x) << dZ) | y;
+            if (prevId != id)
             {
-                auto x = pPoint->x >> (31 - dZ);
-                auto y = pPoint->y >> (31 - dZ);
-                uint64_t id = (static_cast<uint64_t>(x) << dZ) | y;
-                if (prevId != id)
-                {
-                    prevId = id;
+                prevId = id;
 
-                    auto& mapEntry = densityMap[id];
-                    if (mapEntry.first < context.roadsDensityLimitPerTile /*&& p.second > o */)
-                    {
-                        accept = true;
-                        mapEntry.first += 1;
-                        mapEntry.second = line->zOrder;
-                    }
+                auto& mapEntry = densityMap[id];
+                if (mapEntry.first < context.roadsDensityLimitPerTile /*&& p.second > o */)
+                {
+                    accept = true;
+                    mapEntry.first += 1;
+                    mapEntry.second = polyline->zOrder;
                 }
             }
         }
-
         if (!accept)
-            itLine.remove();
+        {
+            if (metric)
+                metric->polylineRejectedByDensity++;
+
+            itPolyline.remove();
+        }
     }
 }
 
 void OsmAnd::MapPrimitiviser_P::obtainPrimitivesSymbols(
     const Context& context,
     const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects,
-#ifdef Q_COMPILER_RVALUE_REFS
-    MapStyleEvaluationResult&& evaluationResult,
-#else
     MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
     const std::shared_ptr<Cache>& cache,
-    const IQueryController* const controller)
+    const std::shared_ptr<const IQueryController>& queryController,
+    MapPrimitiviser_Metrics::Metric_primitivise* const metric)
 {
+    const auto& env = context.env;
+    const auto zoom = primitivisedObjects->zoom;
+
+    // Initialize shared settings for text evaluation
+    MapStyleEvaluator textEvaluator(env->mapStyle, env->displayDensityFactor * env->symbolsScaleFactor);
+    env->applyTo(textEvaluator);
+    textEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MINZOOM, zoom);
+    textEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MAXZOOM, zoom);
+
     //NOTE: Em, I'm not sure this is still true
     //NOTE: Since 2 tiles with same MapObject may have different set of polylines, generated from it,
     //NOTE: then set of symbols also should differ, but it won't.
@@ -1812,7 +1927,7 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitivesSymbols(
     QList< proper::shared_future< std::shared_ptr<const SymbolsGroup> > > futureSharedSymbolGroups;
     for (const auto& primitivesGroup : constOf(primitivisedObjects->primitivesGroups))
     {
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             return;
 
         // If using shared context is allowed, check if this group was already processed
@@ -1850,6 +1965,8 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitivesSymbols(
             }
         }
 
+        const Stopwatch symbolsGroupsProcessingStopwatch(metric != nullptr);
+
         // Create a symbols group
         const std::shared_ptr<SymbolsGroup> group(new SymbolsGroup(
             primitivesGroup->sourceObject));
@@ -1862,26 +1979,39 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitivesSymbols(
             primitivisedObjects,
             primitivesGroup->polygons,
             PrimitivesType::Polygons,
-            qMove(evaluationResult),
+            evaluationResult,
+            textEvaluator,
             constructedGroup->symbols,
-            controller);
+            queryController,
+            metric);
         */
         collectSymbolsFromPrimitives(
             context,
             primitivisedObjects,
             primitivesGroup->polylines,
             PrimitivesType::Polylines,
-            qMove(evaluationResult),
+            evaluationResult,
+            textEvaluator,
             group->symbols,
-            controller);
+            queryController,
+            metric);
         collectSymbolsFromPrimitives(
             context,
             primitivisedObjects,
             primitivesGroup->points,
             PrimitivesType::Points,
-            qMove(evaluationResult),
+            evaluationResult,
+            textEvaluator,
             group->symbols,
-            controller);
+            queryController,
+            metric);
+
+        // Update metric
+        if (metric)
+        {
+            metric->elapsedTimeForSymbolsGroupsProcessing += symbolsGroupsProcessingStopwatch.elapsed();
+            metric->symbolsGroupsProcessed++;
+        }
 
         // Add this group to shared cache
         if (pSharedSymbolGroups && canBeShared)
@@ -1907,13 +2037,11 @@ void OsmAnd::MapPrimitiviser_P::collectSymbolsFromPrimitives(
     const std::shared_ptr<const PrimitivisedObjects>& primitivisedObjects,
     const PrimitivesCollection& primitives,
     const PrimitivesType type,
-#ifdef Q_COMPILER_RVALUE_REFS
-    MapStyleEvaluationResult&& evaluationResult,
-#else
     MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
+    MapStyleEvaluator& textEvaluator,
     SymbolsCollection& outSymbols,
-    const IQueryController* const controller)
+    const std::shared_ptr<const IQueryController>& queryController,
+    MapPrimitiviser_Metrics::Metric_primitivise* const metric)
 {
     assert(type != PrimitivesType::Polylines_ShadowOnly);
 
@@ -1929,7 +2057,7 @@ void OsmAnd::MapPrimitiviser_P::collectSymbolsFromPrimitives(
         //    return;
         //////////////////////////////////////////////////////////////////////////
 
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             return;
 
         if (type == PrimitivesType::Polygons)
@@ -1938,8 +2066,10 @@ void OsmAnd::MapPrimitiviser_P::collectSymbolsFromPrimitives(
                 context,
                 primitivisedObjects,
                 primitive,
-                qMove(evaluationResult),
-                outSymbols);
+                evaluationResult,
+                textEvaluator,
+                outSymbols,
+                metric);
         }
         else if (type == PrimitivesType::Polylines)
         {
@@ -1947,8 +2077,10 @@ void OsmAnd::MapPrimitiviser_P::collectSymbolsFromPrimitives(
                 context,
                 primitivisedObjects,
                 primitive,
-                qMove(evaluationResult),
-                outSymbols);
+                evaluationResult,
+                textEvaluator,
+                outSymbols,
+                metric);
         }
         else if (type == PrimitivesType::Points)
         {
@@ -1956,8 +2088,10 @@ void OsmAnd::MapPrimitiviser_P::collectSymbolsFromPrimitives(
                 context,
                 primitivisedObjects,
                 primitive,
-                qMove(evaluationResult),
-                outSymbols);
+                evaluationResult,
+                textEvaluator,
+                outSymbols,
+                metric);
         }
     }
 }
@@ -1966,12 +2100,10 @@ void OsmAnd::MapPrimitiviser_P::obtainSymbolsFromPolygon(
     const Context& context,
     const std::shared_ptr<const PrimitivisedObjects>& primitivisedObjects,
     const std::shared_ptr<const Primitive>& primitive,
-#ifdef Q_COMPILER_RVALUE_REFS
-    MapStyleEvaluationResult&& evaluationResult,
-#else
     MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
-    SymbolsCollection& outSymbols)
+    MapStyleEvaluator& textEvaluator,
+    SymbolsCollection& outSymbols,
+    MapPrimitiviser_Metrics::Metric_primitivise* const metric)
 {
     const auto& points31 = primitive->sourceObject->points31;
 
@@ -1997,20 +2129,20 @@ void OsmAnd::MapPrimitiviser_P::obtainSymbolsFromPolygon(
         primitivisedObjects,
         primitive,
         Utilities::normalizeCoordinates(center, ZoomLevel31),
-        qMove(evaluationResult),
-        outSymbols);
+        evaluationResult,
+        textEvaluator,
+        outSymbols,
+        metric);
 }
 
 void OsmAnd::MapPrimitiviser_P::obtainSymbolsFromPolyline(
     const Context& context,
     const std::shared_ptr<const PrimitivisedObjects>& primitivisedObjects,
     const std::shared_ptr<const Primitive>& primitive,
-#ifdef Q_COMPILER_RVALUE_REFS
-    MapStyleEvaluationResult&& evaluationResult,
-#else
     MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
-    SymbolsCollection& outSymbols)
+    MapStyleEvaluator& textEvaluator,
+    SymbolsCollection& outSymbols,
+    MapPrimitiviser_Metrics::Metric_primitivise* const metric)
 {
     const auto& points31 = primitive->sourceObject->points31;
 
@@ -2025,20 +2157,20 @@ void OsmAnd::MapPrimitiviser_P::obtainSymbolsFromPolyline(
         primitivisedObjects,
         primitive,
         center,
-        qMove(evaluationResult),
-        outSymbols);
+        evaluationResult,
+        textEvaluator,
+        outSymbols,
+        metric);
 }
 
 void OsmAnd::MapPrimitiviser_P::obtainSymbolsFromPoint(
     const Context& context,
     const std::shared_ptr<const PrimitivisedObjects>& primitivisedObjects,
     const std::shared_ptr<const Primitive>& primitive,
-#ifdef Q_COMPILER_RVALUE_REFS
-    MapStyleEvaluationResult&& evaluationResult,
-#else
     MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
-    SymbolsCollection& outSymbols)
+    MapStyleEvaluator& textEvaluator,
+    SymbolsCollection& outSymbols,
+    MapPrimitiviser_Metrics::Metric_primitivise* const metric)
 {
     //////////////////////////////////////////////////////////////////////////
     //if (primitive->sourceObject->toString().contains("49048972"))
@@ -2093,21 +2225,24 @@ void OsmAnd::MapPrimitiviser_P::obtainSymbolsFromPoint(
             context,
             primitive,
             center,
-            qMove(evaluationResult),
-            outSymbols);
+            evaluationResult,
+            outSymbols,
+            metric);
     }
 
     // Obtain texts for this symbol
     //HACK: (only in case it's first tag)
-    if (primitive->typeRuleIdIndex == 0)
+    if (primitive->attributeIdIndex == 0)
     {
         obtainPrimitiveTexts(
             context,
             primitivisedObjects,
             primitive,
             center,
-            qMove(evaluationResult),
-            outSymbols);
+            evaluationResult,
+            textEvaluator,
+            outSymbols,
+            metric);
     }
 }
 
@@ -2116,12 +2251,10 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
     const std::shared_ptr<const PrimitivisedObjects>& primitivisedObjects,
     const std::shared_ptr<const Primitive>& primitive,
     const PointI& location,
-#ifdef Q_COMPILER_RVALUE_REFS
-    MapStyleEvaluationResult&& evaluationResult,
-#else
     MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
-    SymbolsCollection& outSymbols)
+    MapStyleEvaluator& textEvaluator,
+    SymbolsCollection& outSymbols,
+    MapPrimitiviser_Metrics::Metric_primitivise* const metric)
 {
     const auto& mapObject = primitive->sourceObject;
     const auto& env = context.env;
@@ -2137,12 +2270,13 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
     if (mapObject->captions.isEmpty())
         return;
 
-    const auto& encDecRules = mapObject->encodingDecodingRules;
-    const auto typeRuleId = mapObject->typesRuleIds[primitive->typeRuleIdIndex];
-    const auto& decodedType = encDecRules->decodingRules[typeRuleId];
+    const auto& attributeMapping = mapObject->attributeMapping;
+    const auto attributeId = mapObject->attributeIds[primitive->attributeIdIndex];
+    const auto& decodedAttribute = attributeMapping->decodeMap[attributeId];
 
-    MapStyleEvaluator textEvaluator(env->resolvedStyle, env->displayDensityFactor * env->symbolsScaleFactor);
-    env->applyTo(textEvaluator);
+    // Set common evaluator settings
+    textEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedAttribute.tag);
+    textEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedAttribute.value);
 
     // Get captions and their order
     auto captions = mapObject->captions;
@@ -2156,20 +2290,20 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
         const auto citCaptionsEnd = captions.cend();
 
         // Look for native name
-        const auto citNativeName =
-            (encDecRules->name_encodingRuleId == std::numeric_limits<uint32_t>::max())
+        auto citNativeName =
+            (attributeMapping->nativeNameAttributeId == std::numeric_limits<uint32_t>::max())
             ? citCaptionsEnd
-            : captions.constFind(encDecRules->name_encodingRuleId);
+            : captions.constFind(attributeMapping->nativeNameAttributeId);
         hasNativeName = (citNativeName != citCaptionsEnd);
         auto nativeNameOrder = hasNativeName
             ? captionsOrder.indexOf(citNativeName.key())
             : -1;
 
         // Look for localized name
-        const auto citLocalizedNameRuleId = encDecRules->localizedName_encodingRuleIds.constFind(env->localeLanguageId);
-        if (citLocalizedNameRuleId != encDecRules->localizedName_encodingRuleIds.cend())
+        const auto citLocalizedNameRuleId = attributeMapping->localizedNameAttributes.constFind(&env->localeLanguageId);
+        if (citLocalizedNameRuleId != attributeMapping->localizedNameAttributes.cend())
             localizedNameRuleId = *citLocalizedNameRuleId;
-        const auto citLocalizedName =
+        auto citLocalizedName =
             (localizedNameRuleId == std::numeric_limits<uint32_t>::max())
             ? citCaptionsEnd
             : captions.constFind(localizedNameRuleId);
@@ -2189,6 +2323,7 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
                     captions.remove(localizedNameRuleId);
                     captionsOrder.removeOne(localizedNameRuleId);
                     hasLocalizedName = false;
+                    citLocalizedName = citCaptionsEnd;
                     localizedNameOrder = -1;
                 }
                 break;
@@ -2199,9 +2334,10 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
                 // Only one should be shown, thus remove native if localized exist
                 if (hasLocalizedName && hasNativeName)
                 {
-                    captions.remove(encDecRules->name_encodingRuleId);
-                    captionsOrder.removeOne(encDecRules->name_encodingRuleId);
+                    captions.remove(attributeMapping->nativeNameAttributeId);
+                    captionsOrder.removeOne(attributeMapping->nativeNameAttributeId);
                     hasNativeName = false;
+                    citNativeName = citCaptionsEnd;
                     nativeNameOrder = -1;
                 }
                 break;
@@ -2230,8 +2366,8 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
                 {
                     const auto latinNameValue = ICU::transliterateToLatin(citNativeName.value());
 
-                    captions.insert(localizedNameRuleId, latinNameValue);
-                    localizedNameOrder = captionsOrder.indexOf(encDecRules->name_encodingRuleId) + 1;
+                    citLocalizedName = captions.insert(localizedNameRuleId, latinNameValue);
+                    localizedNameOrder = captionsOrder.indexOf(attributeMapping->nativeNameAttributeId) + 1;
                     captionsOrder.insert(localizedNameOrder, localizedNameRuleId);
                     hasLocalizedName = true;
                 }
@@ -2261,10 +2397,35 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
                 {
                     const auto latinNameValue = ICU::transliterateToLatin(citNativeName.value());
 
-                    captions.insert(localizedNameRuleId, latinNameValue);
-                    localizedNameOrder = captionsOrder.indexOf(encDecRules->name_encodingRuleId);
+                    citLocalizedName = captions.insert(localizedNameRuleId, latinNameValue);
+                    localizedNameOrder = captionsOrder.indexOf(attributeMapping->nativeNameAttributeId);
                     captionsOrder.insert(localizedNameOrder, localizedNameRuleId);
                     hasLocalizedName = true;
+                }
+                break;
+            }
+
+            case MapPresentationEnvironment::LanguagePreference::LocalizedOrTransliterated:
+            {
+                // If there's no localized name, transliterate native name (if exists)
+                if (!hasLocalizedName && hasNativeName)
+                {
+                    const auto latinNameValue = ICU::transliterateToLatin(citNativeName.value());
+
+                    citLocalizedName = captions.insert(localizedNameRuleId, latinNameValue);
+                    localizedNameOrder = captionsOrder.indexOf(attributeMapping->nativeNameAttributeId);
+                    captionsOrder.insert(localizedNameOrder, localizedNameRuleId);
+                    hasLocalizedName = true;
+                }
+                
+                // Only one should be shown, thus remove native if localized exist
+                if (hasLocalizedName && hasNativeName)
+                {
+                    captions.remove(attributeMapping->nativeNameAttributeId);
+                    captionsOrder.removeOne(attributeMapping->nativeNameAttributeId);
+                    hasNativeName = false;
+                    citNativeName = citCaptionsEnd;
+                    nativeNameOrder = -1;
                 }
                 break;
             }
@@ -2277,7 +2438,10 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
         // In case both languages are present, but they are equal (without accents and diacritics)
         if (hasNativeName && hasLocalizedName)
         {
+            assert(citNativeName != citCaptionsEnd);
             const auto pureNativeName = ICU::stripAccentsAndDiacritics(citNativeName.value());
+
+            assert(citLocalizedName != citCaptionsEnd);
             const auto pureLocalizedName = ICU::stripAccentsAndDiacritics(citLocalizedName.value());
 
             if (pureNativeName.compare(pureLocalizedName, Qt::CaseInsensitive) == 0)
@@ -2288,13 +2452,15 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
                     captions.remove(localizedNameRuleId);
                     captionsOrder.removeOne(localizedNameRuleId);
                     hasLocalizedName = false;
+                    citLocalizedName = citCaptionsEnd;
                     localizedNameOrder = -1;
                 }
                 else // if (localizedNameOrder < nativeNameOrder)
                 {
-                    captions.remove(encDecRules->name_encodingRuleId);
-                    captionsOrder.removeOne(encDecRules->name_encodingRuleId);
+                    captions.remove(attributeMapping->nativeNameAttributeId);
+                    captionsOrder.removeOne(attributeMapping->nativeNameAttributeId);
                     hasNativeName = false;
+                    citNativeName = citCaptionsEnd;
                     nativeNameOrder = -1;
                 }
             }
@@ -2305,41 +2471,47 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
     bool ok;
     bool extraCaptionTextAdded = false;
     uint32_t extraCaptionRuleId = std::numeric_limits<uint32_t>::max();
-    for (const auto& captionRuleId : constOf(captionsOrder))
+    for (const auto& captionAttributeId : constOf(captionsOrder))
     {
-        const auto& caption = constOf(captions)[captionRuleId];
+        const auto& caption = constOf(captions)[captionAttributeId];
 
         // If it's empty, it can not be primitivised
         if (caption.isEmpty())
             continue;
 
         // In case this tag was already processed as extra caption, no need to duplicate it
-        if (extraCaptionTextAdded && captionRuleId == extraCaptionRuleId)
+        if (extraCaptionTextAdded && captionAttributeId == extraCaptionRuleId)
             continue;
 
         // Skip captions that are from 'name[:*]'-tags but not of 'native' or 'localized' language
-        if (captionRuleId != encDecRules->name_encodingRuleId &&
-            captionRuleId != localizedNameRuleId &&
-            encDecRules->namesRuleId.contains(captionRuleId))
+        if (captionAttributeId != attributeMapping->nativeNameAttributeId &&
+            captionAttributeId != localizedNameRuleId &&
+            attributeMapping->nameAttributeIds.contains(captionAttributeId))
         {
             continue;
         }
 
+        const Stopwatch textEvaluationStopwatch(metric != nullptr);
+
         // Evaluate style to obtain text parameters
-        textEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_TAG, decodedType.tag);
-        textEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_VALUE, decodedType.value);
-        textEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MINZOOM, primitivisedObjects->zoom);
-        textEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_MAXZOOM, primitivisedObjects->zoom);
         textEvaluator.setIntegerValue(env->styleBuiltinValueDefs->id_INPUT_TEXT_LENGTH, caption.length());
 
-        // Get tag of rule, in case caption is not from a 'name[:*]'-tag
-        QString captionRuleTag;
-        if (captionRuleId != encDecRules->name_encodingRuleId && captionRuleId != localizedNameRuleId)
-            captionRuleTag = encDecRules->decodingRules[captionRuleId].tag;
-        textEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_NAME_TAG, captionRuleTag);
+        // Get tag of the attribute, in case caption is not from a 'name[:*]'-attribute
+        QString captionAttributeTag;
+        if (captionAttributeId != attributeMapping->nativeNameAttributeId && captionAttributeId != localizedNameRuleId)
+            captionAttributeTag = attributeMapping->decodeMap[captionAttributeId].tag;
+        textEvaluator.setStringValue(env->styleBuiltinValueDefs->id_INPUT_NAME_TAG, captionAttributeTag);
 
         evaluationResult.clear();
-        if (!textEvaluator.evaluate(mapObject, MapStyleRulesetType::Text, &evaluationResult))
+        ok = textEvaluator.evaluate(mapObject, MapStyleRulesetType::Text, &evaluationResult);
+
+        if (metric)
+        {
+            metric->elapsedTimeForTextSymbolsEvaluation += textEvaluationStopwatch.elapsed();
+            metric->textSymbolsEvaluations++;
+        }
+
+        if (!ok)
             continue;
 
         // Skip text that doesn't have valid size
@@ -2348,11 +2520,13 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
         if (!ok || textSize == 0)
             continue;
 
+        const Stopwatch textProcessingStopwatch(metric != nullptr);
+
         // Determine language of this text
         auto languageId = LanguageId::Invariant;
-        if (hasNativeName && captionRuleId == encDecRules->name_encodingRuleId)
+        if (hasNativeName && captionAttributeId == attributeMapping->nativeNameAttributeId)
             languageId = LanguageId::Native;
-        else if (hasLocalizedName && captionRuleId == localizedNameRuleId)
+        else if (hasLocalizedName && captionAttributeId == localizedNameRuleId)
             languageId = LanguageId::Localized;
 
         // Create primitive
@@ -2369,14 +2543,14 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
             ok = evaluationResult.getStringValue(env->styleBuiltinValueDefs->id_OUTPUT_NAME_TAG2, nameTag2);
             if (ok && !nameTag2.isEmpty())
             {
-                const auto citNameTag2RulesGroup = encDecRules->encodingRuleIds.constFind(nameTag2);
-                if (citNameTag2RulesGroup != encDecRules->encodingRuleIds.constEnd())
+                const auto citNameTag2AttributesGroup = attributeMapping->encodeMap.constFind(&nameTag2);
+                if (citNameTag2AttributesGroup != attributeMapping->encodeMap.constEnd())
                 {
-                    const auto& nameTag2RulesGroup = *citNameTag2RulesGroup;
-                    for (const auto& nameTag2RuleEntry : rangeOf(constOf(nameTag2RulesGroup)))
+                    const auto& nameTag2AttributesGroup = *citNameTag2AttributesGroup;
+                    for (const auto& nameTag2AttributeEntry : rangeOf(constOf(nameTag2AttributesGroup)))
                     {
-                        const auto ruleId = nameTag2RuleEntry.value();
-                        const auto citExtraCaption = mapObject->captions.constFind(ruleId);
+                        const auto attributeId = nameTag2AttributeEntry.value();
+                        const auto citExtraCaption = mapObject->captions.constFind(attributeId);
 
                         if (citExtraCaption == mapObject->captions.constEnd())
                             continue;
@@ -2391,7 +2565,7 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
                         text->value += QString(QLatin1String(" (%1)")).arg(extraCaption);
 
                         extraCaptionTextAdded = true;
-                        extraCaptionRuleId = ruleId;
+                        extraCaptionRuleId = attributeId;
                         break;
                     }
                 }
@@ -2408,8 +2582,6 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
         // By default, text order is treated as 100
         text->order = 100;
         ok = evaluationResult.getIntegerValue(env->styleBuiltinValueDefs->id_OUTPUT_TEXT_ORDER, text->order);
-        //NOTE: a magic shifting of text order. This is needed to keep text more important than anything else
-        text->order += 100000;
 
         if (primitive->type == PrimitiveType::Point ||
             primitive->type == PrimitiveType::Polygon)
@@ -2448,24 +2620,36 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
 
         evaluationResult.getStringValue(env->styleBuiltinValueDefs->id_OUTPUT_TEXT_SHIELD, text->shieldResourceName);
 
+        evaluationResult.getStringValue(
+            env->styleBuiltinValueDefs->id_OUTPUT_ICON,
+            text->underlayIconResourceName);
+
         QString intersectsWith;
-        ok = evaluationResult.getStringValue(env->styleBuiltinValueDefs->id_OUTPUT_TEXT_OR_ICON_INTERSECTS_WITH, intersectsWith);
+        ok = evaluationResult.getStringValue(
+            env->styleBuiltinValueDefs->id_OUTPUT_INTERSECTS_WITH,
+            intersectsWith);
         if (!ok)
             intersectsWith = QLatin1String("text"); // To simulate original behavior, texts should intersect only other texts
         text->intersectsWith = intersectsWith.split(QLatin1Char(','), QString::SkipEmptyParts).toSet();
 
         float intersectionSizeFactor = std::numeric_limits<float>::quiet_NaN();
-        ok = evaluationResult.getFloatValue(env->styleBuiltinValueDefs->id_OUTPUT_TEXT_OR_ICON_INTERSECTION_SIZE_FACTOR, intersectionSizeFactor);
+        ok = evaluationResult.getFloatValue(
+            env->styleBuiltinValueDefs->id_OUTPUT_INTERSECTION_SIZE_FACTOR,
+            intersectionSizeFactor);
         if (ok)
             text->intersectionSizeFactor = intersectionSizeFactor;
 
         float intersectionSize = std::numeric_limits<float>::quiet_NaN();
-        ok = !ok && evaluationResult.getFloatValue(env->styleBuiltinValueDefs->id_OUTPUT_TEXT_OR_ICON_INTERSECTION_SIZE, intersectionSize);
+        ok = !ok && evaluationResult.getFloatValue(
+            env->styleBuiltinValueDefs->id_OUTPUT_INTERSECTION_SIZE,
+            intersectionSize);
         if (ok)
             text->intersectionSize = intersectionSize;
 
         float intersectionMargin = std::numeric_limits<float>::quiet_NaN();
-        ok = !ok && evaluationResult.getFloatValue(env->styleBuiltinValueDefs->id_OUTPUT_TEXT_OR_ICON_INTERSECTION_MARGIN, intersectionMargin);
+        ok = !ok && evaluationResult.getFloatValue(
+            env->styleBuiltinValueDefs->id_OUTPUT_INTERSECTION_MARGIN,
+            intersectionMargin);
         if (ok)
             text->intersectionMargin = intersectionMargin;
 
@@ -2482,9 +2666,22 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveTexts(
                 return false;
             });
         if (hasTwin)
+        {
+            if (metric)
+            {
+                metric->elapsedTimeForTextSymbolsProcessing += textProcessingStopwatch.elapsed();
+                metric->rejectedTextSymbols++;
+            }
+
             continue;
+        }
 
         outSymbols.push_back(qMove(text));
+        if (metric)
+        {
+            metric->elapsedTimeForTextSymbolsProcessing += textProcessingStopwatch.elapsed();
+            metric->obtainedTextSymbols++;
+        }
     }
 }
 
@@ -2492,20 +2689,19 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveIcon(
     const Context& context,
     const std::shared_ptr<const Primitive>& primitive,
     const PointI& location,
-#ifdef Q_COMPILER_RVALUE_REFS
-    MapStyleEvaluationResult&& evaluationResult,
-#else
     MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
-    SymbolsCollection& outSymbols)
+    SymbolsCollection& outSymbols,
+    MapPrimitiviser_Metrics::Metric_primitivise* const metric)
 {
     const auto& env = context.env;
 
     //////////////////////////////////////////////////////////////////////////
-    //if (primitive->sourceObject->toString().contains("2380290737"))
+    //if (primitive->sourceObject->toString().contains("1333827773"))
     //{
     //    int i = 5;
     //}
+    //else
+    //    return;
     //////////////////////////////////////////////////////////////////////////
 
     if (primitive->evaluationResult.isEmpty())
@@ -2513,11 +2709,17 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveIcon(
 
     bool ok;
 
+    const Stopwatch iconProcessingStopwatch(metric != nullptr);
+
     QString iconResourceName;
     ok = primitive->evaluationResult.getStringValue(env->styleBuiltinValueDefs->id_OUTPUT_ICON, iconResourceName);
-
     if (!ok || iconResourceName.isEmpty())
+    {
+        if (metric)
+            metric->elapsedTimeForIconSymbolsProcessing += iconProcessingStopwatch.elapsed();
+
         return;
+    }
 
     const std::shared_ptr<IconSymbol> icon(new IconSymbol(primitive));
     icon->drawAlongPath = (primitive->type == PrimitiveType::Polyline);
@@ -2540,31 +2742,47 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveIcon(
     if (primitive->evaluationResult.getStringValue(env->styleBuiltinValueDefs->id_OUTPUT_ICON_5, iconResourceName))
         icon->overlayResourceNames.push_back(qMove(iconResourceName));
 
+    //NOTE: Also divide by 2, since for some reason factor is calculated using half-size, not size
+    if (primitive->evaluationResult.getFloatValue(env->styleBuiltinValueDefs->id_OUTPUT_ICON_SHIFT_PX, icon->offsetFactor.x))
+        icon->offsetFactor.x *= 0.5f;
+    if (primitive->evaluationResult.getFloatValue(env->styleBuiltinValueDefs->id_OUTPUT_ICON_SHIFT_PY, icon->offsetFactor.y))
+        icon->offsetFactor.y *= 0.5f;
+
     icon->order = 100;
     primitive->evaluationResult.getIntegerValue(env->styleBuiltinValueDefs->id_OUTPUT_ICON_ORDER, icon->order);
+    //NOTE: a magic shifting of icon order. This is needed to keep icons less important than anything else
+    icon->order += 1000000;
 
     evaluationResult.getFloatValue(env->styleBuiltinValueDefs->id_OUTPUT_ICON_MIN_DISTANCE, icon->minDistance);
 
-    primitive->evaluationResult.getStringValue(env->styleBuiltinValueDefs->id_OUTPUT_ICON_SHIELD, icon->shieldResourceName);
+    primitive->evaluationResult.getStringValue(env->styleBuiltinValueDefs->id_OUTPUT_SHIELD, icon->shieldResourceName);
 
     QString intersectsWith;
-    ok = primitive->evaluationResult.getStringValue(env->styleBuiltinValueDefs->id_OUTPUT_TEXT_OR_ICON_INTERSECTS_WITH, intersectsWith);
+    ok = primitive->evaluationResult.getStringValue(
+        env->styleBuiltinValueDefs->id_OUTPUT_INTERSECTS_WITH,
+        intersectsWith);
     if (!ok)
         intersectsWith = QLatin1String("icon"); // To simulate original behavior, icons should intersect only other icons
     icon->intersectsWith = intersectsWith.split(QLatin1Char(','), QString::SkipEmptyParts).toSet();
 
     float intersectionSizeFactor = std::numeric_limits<float>::quiet_NaN();
-    ok = primitive->evaluationResult.getFloatValue(env->styleBuiltinValueDefs->id_OUTPUT_TEXT_OR_ICON_INTERSECTION_SIZE_FACTOR, intersectionSizeFactor);
+    ok = primitive->evaluationResult.getFloatValue(
+        env->styleBuiltinValueDefs->id_OUTPUT_INTERSECTION_SIZE_FACTOR,
+        intersectionSizeFactor);
     if (ok)
         icon->intersectionSizeFactor = intersectionSizeFactor;
 
     float intersectionSize = std::numeric_limits<float>::quiet_NaN();
-    ok = !ok && primitive->evaluationResult.getFloatValue(env->styleBuiltinValueDefs->id_OUTPUT_TEXT_OR_ICON_INTERSECTION_SIZE, intersectionSize);
+    ok = !ok && primitive->evaluationResult.getFloatValue(
+        env->styleBuiltinValueDefs->id_OUTPUT_INTERSECTION_SIZE,
+        intersectionSize);
     if (ok)
         icon->intersectionSize = intersectionSize;
 
     float intersectionMargin = std::numeric_limits<float>::quiet_NaN();
-    ok = !ok && primitive->evaluationResult.getFloatValue(env->styleBuiltinValueDefs->id_OUTPUT_TEXT_OR_ICON_INTERSECTION_MARGIN, intersectionMargin);
+    ok = !ok && primitive->evaluationResult.getFloatValue(
+        env->styleBuiltinValueDefs->id_OUTPUT_INTERSECTION_MARGIN,
+        intersectionMargin);
     if (ok)
         icon->intersectionMargin = intersectionMargin;
 
@@ -2572,7 +2790,9 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveIcon(
     if (!ok)
     {
         float iconIntersectionSize = std::numeric_limits<float>::quiet_NaN();
-        ok = primitive->evaluationResult.getFloatValue(env->styleBuiltinValueDefs->id_OUTPUT_ICON_INTERSECTION_SIZE, iconIntersectionSize);
+        ok = primitive->evaluationResult.getFloatValue(
+            env->styleBuiltinValueDefs->id_OUTPUT_ICON_INTERSECTION_SIZE,
+            iconIntersectionSize);
         if (ok)
             icon->intersectionSize = iconIntersectionSize;
     }
@@ -2590,10 +2810,23 @@ void OsmAnd::MapPrimitiviser_P::obtainPrimitiveIcon(
             return false;
         });
     if (hasTwin)
+    {
+        if (metric)
+        {
+            metric->elapsedTimeForIconSymbolsProcessing += iconProcessingStopwatch.elapsed();
+            metric->rejectedIconSymbols++;
+        }
+
         return;
+    }
 
     // Icons are always first
     outSymbols.prepend(qMove(icon));
+    if (metric)
+    {
+        metric->elapsedTimeForIconSymbolsProcessing += iconProcessingStopwatch.elapsed();
+        metric->obtainedIconSymbols++;
+    }
 }
 
 OsmAnd::MapPrimitiviser_P::Context::Context(

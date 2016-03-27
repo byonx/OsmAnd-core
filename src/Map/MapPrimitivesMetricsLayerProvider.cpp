@@ -1,6 +1,7 @@
 #include "MapPrimitivesMetricsLayerProvider.h"
 #include "MapPrimitivesMetricsLayerProvider_P.h"
 
+#include "MapDataProviderHelpers.h"
 #include "MapPrimitivesProvider.h"
 #include "MapPresentationEnvironment.h"
 
@@ -34,21 +35,38 @@ uint32_t OsmAnd::MapPrimitivesMetricsLayerProvider::getTileSize() const
     return tileSize;
 }
 
-bool OsmAnd::MapPrimitivesMetricsLayerProvider::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<IMapTiledDataProvider::Data>& outTiledData,
-    std::shared_ptr<Metric>* pOutMetric /*= nullptr*/,
-    const IQueryController* const queryController /*= nullptr*/)
+bool OsmAnd::MapPrimitivesMetricsLayerProvider::supportsNaturalObtainData() const
 {
-    if (pOutMetric)
-        pOutMetric->reset();
+    return true;
+}
 
-    std::shared_ptr<MapPrimitivesMetricsLayerProvider::Data> tiledData;
-    const auto result = _p->obtainData(tileId, zoom, tiledData, queryController);
-    outTiledData = tiledData;
+bool OsmAnd::MapPrimitivesMetricsLayerProvider::obtainData(
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
+{
+    return _p->obtainData(request, outData, pOutMetric);
+}
 
-    return result;
+bool OsmAnd::MapPrimitivesMetricsLayerProvider::supportsNaturalObtainDataAsync() const
+{
+    return false;
+}
+
+void OsmAnd::MapPrimitivesMetricsLayerProvider::obtainDataAsync(
+    const IMapDataProvider::Request& request,
+    const IMapDataProvider::ObtainDataAsyncCallback callback,
+    const bool collectMetric /*= false*/)
+{
+    MapDataProviderHelpers::nonNaturalObtainDataAsync(this, request, callback, collectMetric);
+}
+
+bool OsmAnd::MapPrimitivesMetricsLayerProvider::obtainMetricsTile(
+    const Request& request,
+    std::shared_ptr<Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
+{
+    return MapDataProviderHelpers::obtainData(this, request, outData, pOutMetric);
 }
 
 OsmAnd::ZoomLevel OsmAnd::MapPrimitivesMetricsLayerProvider::getMinZoom() const
@@ -59,27 +77,6 @@ OsmAnd::ZoomLevel OsmAnd::MapPrimitivesMetricsLayerProvider::getMinZoom() const
 OsmAnd::ZoomLevel OsmAnd::MapPrimitivesMetricsLayerProvider::getMaxZoom() const
 {
     return _p->getMaxZoom();
-}
-
-OsmAnd::IMapDataProvider::SourceType OsmAnd::MapPrimitivesMetricsLayerProvider::getSourceType() const
-{
-    const auto underlyingSourceType = primitivesProvider->getSourceType();
-
-    switch (underlyingSourceType)
-    {
-        case IMapDataProvider::SourceType::LocalDirect:
-        case IMapDataProvider::SourceType::LocalGenerated:
-            return IMapDataProvider::SourceType::LocalGenerated;
-
-        case IMapDataProvider::SourceType::NetworkDirect:
-        case IMapDataProvider::SourceType::NetworkGenerated:
-            return IMapDataProvider::SourceType::NetworkGenerated;
-
-        case IMapDataProvider::SourceType::MiscDirect:
-        case IMapDataProvider::SourceType::MiscGenerated:
-        default:
-            return IMapDataProvider::SourceType::MiscGenerated;
-    }
 }
 
 OsmAnd::MapPrimitivesMetricsLayerProvider::Data::Data(

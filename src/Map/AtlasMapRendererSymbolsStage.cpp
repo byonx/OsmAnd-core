@@ -303,7 +303,10 @@ bool OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderableSymbols(
     {
         QHash< std::shared_ptr<const MapSymbolsGroup::AdditionalInstance>, PlottedSymbolsRefGroupInstance > instancesRefs;
 
-        void discard(const AtlasMapRendererSymbolsStage* const stage, PlottedSymbols& plottedSymbols, ScreenQuadTree& intersections)
+        void discard(
+            const AtlasMapRendererSymbolsStage* const stage,
+            PlottedSymbols& plottedSymbols,
+            ScreenQuadTree& intersections)
         {
             // Discard all instances
             for (auto& instanceRef : instancesRefs)
@@ -314,8 +317,8 @@ bool OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderableSymbols(
     QHash< std::shared_ptr<const MapSymbolsGroup>, PlottedSymbolsRefGroupInstances> plottedSymbolsMapByGroupAndInstance;
 
     // Iterate over map symbols layer sorted by "order" in ascending direction.
-    // This means that map symbols with smaller order value are more important than map symbols with
-    // larger order value.
+    // This means that map symbols with smaller order value are more important than map symbols with larger order value.
+    // Also this means that map symbols with smaller order value are rendered after map symbols with larger order value.
     // Tree depth should satisfy following condition:
     // (max(width, height) / 2^depth) >= 64
     const auto viewportMaxDimension = qMax(currentState.viewport.height(), currentState.viewport.width());
@@ -327,6 +330,8 @@ bool OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderableSymbols(
         const auto order = mapSymbolsByOrderEntry.key();
         const auto& mapSymbols = mapSymbolsByOrderEntry.value();
         MapRenderer::PublishedMapSymbolsByGroup* pAcceptedMapSymbols = nullptr;
+
+        const auto itPlottedSymbolsInsertPosition = plottedSymbols.begin();
 
         // Iterate over all groups in proper order (proper order is maintained during publishing)
         for (const auto& mapSymbolsEntry : constOf(mapSymbols))
@@ -409,7 +414,7 @@ bool OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderableSymbols(
                             atLeastOnePlotted = true;
                         }
 
-                        const auto itPlottedSymbol = plottedSymbols.insert(plottedSymbols.end(), renderableSymbol);
+                        const auto itPlottedSymbol = plottedSymbols.insert(itPlottedSymbolsInsertPosition, renderableSymbol);
                         PlottedSymbolRef plottedSymbolRef = { itPlottedSymbol, renderableSymbol };
 
                         plottedSymbolsMapByGroupAndInstance[mapSymbolsGroup]
@@ -470,7 +475,7 @@ bool OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderableSymbols(
                             atLeastOnePlotted = true;
                         }
 
-                        const auto itPlottedSymbol = plottedSymbols.insert(plottedSymbols.end(), renderableSymbol);
+                        const auto itPlottedSymbol = plottedSymbols.insert(itPlottedSymbolsInsertPosition, renderableSymbol);
                         PlottedSymbolRef plottedSymbolRef = { itPlottedSymbol, renderableSymbol };
 
                         plottedSymbolsMapByGroupAndInstance[mapSymbolsGroup]
@@ -648,8 +653,6 @@ bool OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderableSymbols(
                         }
                     }
                 }
-
-                break;
             }
 
             // In case all instances of group was removed, erase the group
@@ -694,7 +697,8 @@ void OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderablesFromSymbol(
         if (Q_UNLIKELY(debugSettings->excludeOnPathSymbolsFromProcessing))
             return;
 
-        const auto instanceParameters = std::static_pointer_cast<const MapSymbolsGroup::AdditionalOnPathSymbolInstanceParameters>(instanceParameters_);
+        const auto instanceParameters =
+            std::static_pointer_cast<const MapSymbolsGroup::AdditionalOnPathSymbolInstanceParameters>(instanceParameters_);
         obtainRenderablesFromOnPathSymbol(
             mapSymbolGroup,
             onPathMapSymbol,
@@ -709,7 +713,8 @@ void OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderablesFromSymbol(
         if (Q_UNLIKELY(debugSettings->excludeOnSurfaceSymbolsFromProcessing))
             return;
 
-        const auto instanceParameters = std::static_pointer_cast<const MapSymbolsGroup::AdditionalOnSurfaceSymbolInstanceParameters>(instanceParameters_);
+        const auto instanceParameters =
+            std::static_pointer_cast<const MapSymbolsGroup::AdditionalOnSurfaceSymbolInstanceParameters>(instanceParameters_);
         obtainRenderablesFromOnSurfaceSymbol(
             mapSymbolGroup,
             onSurfaceMapSymbol,
@@ -723,7 +728,8 @@ void OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderablesFromSymbol(
         if (Q_UNLIKELY(debugSettings->excludeBillboardSymbolsFromProcessing))
             return;
 
-        const auto instanceParameters = std::static_pointer_cast<const MapSymbolsGroup::AdditionalBillboardSymbolInstanceParameters>(instanceParameters_);
+        const auto instanceParameters =
+            std::static_pointer_cast<const MapSymbolsGroup::AdditionalBillboardSymbolInstanceParameters>(instanceParameters_);
         obtainRenderablesFromBillboardSymbol(
             mapSymbolGroup,
             billboardMapSymbol,
@@ -804,7 +810,9 @@ void OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderablesFromBillboardSymbol(
         : billboardMapSymbol->getPosition31();
 
     // Test against visible frustum area (if allowed)
-    if (mapSymbol->allowFastCheckByFrustum && !internalState.globalFrustum2D31.test(position31))
+    if (!debugSettings->disableSymbolsFastCheckByFrustum &&
+        mapSymbol->allowFastCheckByFrustum &&
+        !internalState.globalFrustum2D31.test(position31))
     {
         if (metric)
             metric->billboardSymbolsRejectedByFrustum++;
@@ -947,7 +955,9 @@ void OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderablesFromOnSurfaceSymbol(
         : onSurfaceMapSymbol->getDirection();
 
     // Test against visible frustum area (if allowed)
-    if (mapSymbol->allowFastCheckByFrustum && !internalState.globalFrustum2D31.test(position31))
+    if (!debugSettings->disableSymbolsFastCheckByFrustum &&
+        mapSymbol->allowFastCheckByFrustum &&
+        !internalState.globalFrustum2D31.test(position31))
     {
         if (metric)
             metric->onSurfaceSymbolsRejectedByFrustum++;
@@ -1059,7 +1069,9 @@ void OsmAnd::AtlasMapRendererSymbolsStage::obtainRenderablesFromOnPathSymbol(
         : onPathMapSymbol->pinPointOnPath;
 
     // Test against visible frustum area (if allowed)
-    if (onPathMapSymbol->allowFastCheckByFrustum && !internalState.globalFrustum2D31.test(pinPointOnPath.point31))
+    if (!debugSettings->disableSymbolsFastCheckByFrustum &&
+        onPathMapSymbol->allowFastCheckByFrustum &&
+        !internalState.globalFrustum2D31.test(pinPointOnPath.point31))
     {
         if (metric)
             metric->onPathSymbolsRejectedByFrustum++;
@@ -1487,7 +1499,8 @@ bool OsmAnd::AtlasMapRendererSymbolsStage::applyIntersectionWithOtherSymbolsFilt
     Stopwatch stopwatch(metric != nullptr);
     
     // Check intersections
-    const auto checkIntersectionsWithinGroup = renderable->mapSymbolGroup->intersectionProcessingMode.isSet(MapSymbolsGroup::IntersectionProcessingModeFlag::CheckIntersectionsWithinGroup);
+    const auto checkIntersectionsWithinGroup = renderable->mapSymbolGroup->intersectionProcessingMode.isSet(
+        MapSymbolsGroup::IntersectionProcessingModeFlag::CheckIntersectionsWithinGroup);
     const auto& intersectionClassesRegistry = MapSymbolIntersectionClassesRegistry::globalInstance();
     const auto& symbolIntersectsWithClasses = symbol->intersectsWithClasses;
     const auto anyIntersectionClass = intersectionClassesRegistry.anyClass;
@@ -2085,7 +2098,8 @@ const QVector<float>& glyphsWidths) const
     return glyphsPlacement;
 }
 
-OsmAnd::OOBBF OsmAnd::AtlasMapRendererSymbolsStage::calculateOnPath2dOOBB(const std::shared_ptr<RenderableOnPathSymbol>& renderable) const
+OsmAnd::OOBBF OsmAnd::AtlasMapRendererSymbolsStage::calculateOnPath2dOOBB(
+    const std::shared_ptr<RenderableOnPathSymbol>& renderable) const
 {
     const auto& symbol = std::static_pointer_cast<const OnPathRasterMapSymbol>(renderable->mapSymbol);
 
@@ -2148,7 +2162,8 @@ OsmAnd::OOBBF OsmAnd::AtlasMapRendererSymbolsStage::calculateOnPath2dOOBB(const 
     return OOBBF(bboxInDirection, -directionAngle);
 }
 
-OsmAnd::OOBBF OsmAnd::AtlasMapRendererSymbolsStage::calculateOnPath3dOOBB(const std::shared_ptr<RenderableOnPathSymbol>& renderable) const
+OsmAnd::OOBBF OsmAnd::AtlasMapRendererSymbolsStage::calculateOnPath3dOOBB(
+    const std::shared_ptr<RenderableOnPathSymbol>& renderable) const
 {
     const auto& internalState = getInternalState();
     const auto& symbol = std::static_pointer_cast<const OnPathRasterMapSymbol>(renderable->mapSymbol);

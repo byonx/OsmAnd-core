@@ -17,7 +17,7 @@ namespace OsmAnd
         Q_DISABLE_COPY_AND_MOVE(FunctorQueryController);
 
     public:
-        OSMAND_CALLABLE(Callback, bool, const FunctorQueryController* const controller);
+        OSMAND_CALLABLE(Callback, bool, const FunctorQueryController* const queryController);
 
     private:
     protected:
@@ -26,7 +26,7 @@ namespace OsmAnd
         FunctorQueryController(const Callback callback);
         virtual ~FunctorQueryController();
 
-        virtual bool isAborted() const;
+        virtual bool isAborted() const Q_DECL_OVERRIDE;
     };
 }
 

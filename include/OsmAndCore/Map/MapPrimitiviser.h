@@ -103,14 +103,6 @@ namespace OsmAnd
                 const PrimitiveType type,
                 const uint32_t typeRuleIdIndex,
                 const MapStyleEvaluationResult& evaluationResult);
-
-#ifdef Q_COMPILER_RVALUE_REFS
-            Primitive(
-                const std::shared_ptr<const PrimitivesGroup>& group,
-                const PrimitiveType type,
-                const uint32_t typeRuleIdIndex,
-                MapStyleEvaluationResult&& evaluationResult);
-#endif // Q_COMPILER_RVALUE_REFS
         public:
             ~Primitive();
 
@@ -118,8 +110,8 @@ namespace OsmAnd
             const std::shared_ptr<const MapObject> sourceObject;
 
             const PrimitiveType type;
-            const uint32_t typeRuleIdIndex;
-            const MapStyleEvaluationResult evaluationResult;
+            const uint32_t attributeIdIndex;
+            const MapStyleEvaluationResult::Packed evaluationResult;
 
             int zOrder;
             int64_t doubledArea;
@@ -204,6 +196,7 @@ namespace OsmAnd
             bool isBold;
             bool isItalic;
             QString shieldResourceName;
+            QString underlayIconResourceName;
 
             bool operator==(const TextSymbol& that) const;
             bool operator!=(const TextSymbol& that) const;
@@ -227,6 +220,7 @@ namespace OsmAnd
             QString resourceName;
             QList<QString> underlayResourceNames;
             QList<QString> overlayResourceNames;
+            PointF offsetFactor;
             QString shieldResourceName;
 
             bool operator==(const IconSymbol& that) const;
@@ -308,7 +302,7 @@ namespace OsmAnd
             const ZoomLevel zoom,
             const QList< std::shared_ptr<const MapObject> >& objects,
             const std::shared_ptr<Cache>& cache = nullptr,
-            const IQueryController* const controller = nullptr,
+            const std::shared_ptr<const IQueryController>& queryController = nullptr,
             MapPrimitiviser_Metrics::Metric_primitiviseAllMapObjects* const metric = nullptr);
 
         std::shared_ptr<PrimitivisedObjects> primitiviseAllMapObjects(
@@ -316,7 +310,7 @@ namespace OsmAnd
             const ZoomLevel zoom,
             const QList< std::shared_ptr<const MapObject> >& objects,
             const std::shared_ptr<Cache>& cache = nullptr,
-            const IQueryController* const controller = nullptr,
+            const std::shared_ptr<const IQueryController>& queryController = nullptr,
             MapPrimitiviser_Metrics::Metric_primitiviseAllMapObjects* const metric = nullptr);
 
         std::shared_ptr<PrimitivisedObjects> primitiviseWithSurface(
@@ -326,7 +320,7 @@ namespace OsmAnd
             const MapSurfaceType surfaceType,
             const QList< std::shared_ptr<const MapObject> >& objects,
             const std::shared_ptr<Cache>& cache = nullptr,
-            const IQueryController* const controller = nullptr,
+            const std::shared_ptr<const IQueryController>& queryController = nullptr,
             MapPrimitiviser_Metrics::Metric_primitiviseWithSurface* const metric = nullptr);
 
         std::shared_ptr<PrimitivisedObjects> primitiviseWithoutSurface(
@@ -334,7 +328,7 @@ namespace OsmAnd
             const ZoomLevel zoom,
             const QList< std::shared_ptr<const MapObject> >& objects,
             const std::shared_ptr<Cache>& cache = nullptr,
-            const IQueryController* const controller = nullptr,
+            const std::shared_ptr<const IQueryController>& queryController = nullptr,
             MapPrimitiviser_Metrics::Metric_primitiviseWithoutSurface* const metric = nullptr);
     };
 }

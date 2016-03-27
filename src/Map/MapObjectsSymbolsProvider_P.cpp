@@ -10,6 +10,7 @@
 #include <SkBitmap.h>
 #include "restore_internal_warnings.h"
 
+#include "MapDataProviderHelpers.h"
 #include "MapSymbolIntersectionClassesRegistry.h"
 #include "MapPrimitivesProvider.h"
 #include "MapPresentationEnvironment.h"
@@ -31,30 +32,31 @@ OsmAnd::MapObjectsSymbolsProvider_P::~MapObjectsSymbolsProvider_P()
 }
 
 bool OsmAnd::MapObjectsSymbolsProvider_P::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<MapObjectsSymbolsProvider::Data>& outTiledData,
-    const IQueryController* const queryController,
-    const FilterCallback filterCallback)
+    const IMapDataProvider::Request& request_,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric)
 {
-    const auto tileBBox31 = Utilities::tileBoundingBox31(tileId, zoom);
+    if (pOutMetric)
+        pOutMetric->reset();
+    const auto& request = MapDataProviderHelpers::castRequest<MapObjectsSymbolsProvider::Request>(request_);
+    const auto tileBBox31 = Utilities::tileBoundingBox31(request.tileId, request.zoom);
 
     // Obtain offline map primitives tile
-    std::shared_ptr<IMapTiledDataProvider::Data> primitivesTile_;
-    owner->primitivesProvider->obtainData(tileId, zoom, primitivesTile_);
-    const auto primitivesTile = std::static_pointer_cast<MapPrimitivesProvider::Data>(primitivesTile_);
+    std::shared_ptr<MapPrimitivesProvider::Data> primitivesTile;
+    owner->primitivesProvider->obtainTiledPrimitives(request, primitivesTile);
 
     // If tile has nothing to be rasterized, mark that data is not available for it
-    if (!primitivesTile_ || primitivesTile->primitivisedObjects->isEmpty())
+    if (!primitivesTile || primitivesTile->primitivisedObjects->isEmpty())
     {
         // Mark tile as empty
-        outTiledData.reset();
+        outData.reset();
         return true;
     }
 
     // Rasterize symbols and create symbols groups
     QList< std::shared_ptr<const SymbolRasterizer::RasterizedSymbolsGroup> > rasterizedSymbolsGroups;
     QHash< std::shared_ptr<const MapObject>, std::shared_ptr<MapObjectSymbolsGroup> > preallocatedSymbolsGroups;
+    const auto filterCallback = request.filterCallback;
     const auto rasterizationFilter =
         [this, tileBBox31, filterCallback, &preallocatedSymbolsGroups]
         (const std::shared_ptr<const MapObject>& mapObject) -> bool
@@ -211,7 +213,7 @@ bool OsmAnd::MapObjectsSymbolsProvider_P::obtainData(
                 symbolsWidthsInPixels,
                 mapObject->getMinZoomLevel(),
                 mapObject->getMaxZoomLevel(),
-                zoom);
+                request.zoom);
 
             // After pin-points were computed, assign them to symbols in the same order
             auto citComputedPinPoint = computedPinPoints.cbegin();
@@ -292,9 +294,9 @@ bool OsmAnd::MapObjectsSymbolsProvider_P::obtainData(
     }
 
     // Create output tile
-    outTiledData.reset(new MapObjectsSymbolsProvider::Data(
-        tileId,
-        zoom,
+    outData.reset(new MapObjectsSymbolsProvider::Data(
+        request.tileId,
+        request.zoom,
         symbolsGroups,
         primitivesTile,
         new RetainableCacheMetadata(primitivesTile->retainableCacheMetadata)));

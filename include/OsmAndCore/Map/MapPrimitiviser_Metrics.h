@@ -15,6 +15,9 @@ namespace OsmAnd
     namespace MapPrimitiviser_Metrics
     {
 #define OsmAnd__MapPrimitiviser_Metrics__Metric_primitivise__FIELDS(FIELD_ACTION)                   \
+        /* Time spent on obtaining primitives */                                                    \
+        FIELD_ACTION(float, elapsedTimeForPrimitives, "s");                                         \
+                                                                                                    \
         /* Time spent on obtaining all primitives groups */                                         \
         FIELD_ACTION(float, elapsedTimeForObtainingPrimitivesGroups, "s");                          \
                                                                                                     \
@@ -29,6 +32,9 @@ namespace OsmAnd
                                                                                                     \
         /* Number of order rejects */                                                               \
         FIELD_ACTION(unsigned int, orderRejects, "");                                               \
+                                                                                                    \
+        /* Time spent on Order processing */                                                        \
+        FIELD_ACTION(float, elapsedTimeForOrderProcessing, "s");                                    \
                                                                                                     \
         /* Time spent on Polygon rules evaluation */                                                \
         FIELD_ACTION(float, elapsedTimeForPolygonEvaluation, "s");                                  \
@@ -45,17 +51,26 @@ namespace OsmAnd
         /* Number of obtained polygon primitives */                                                 \
         FIELD_ACTION(unsigned int, polygonPrimitives, "");                                          \
                                                                                                     \
+        /* Time spent on Polygon processing */                                                      \
+        FIELD_ACTION(float, elapsedTimeForPolygonProcessing, "s");                                  \
+                                                                                                    \
         /* Time spent on Polyline rules evaluation */                                               \
         FIELD_ACTION(float, elapsedTimeForPolylineEvaluation, "s");                                 \
                                                                                                     \
         /* Number of polyline evaluations */                                                        \
         FIELD_ACTION(unsigned int, polylineEvaluations, "");                                        \
                                                                                                     \
-        /* Number of polyline evaluations */                                                        \
+        /* Number of polylines rejected by style */                                                 \
         FIELD_ACTION(unsigned int, polylineRejects, "");                                            \
+                                                                                                    \
+        /* Number of polylines rejected by density */                                               \
+        FIELD_ACTION(unsigned int, polylineRejectedByDensity, "");                                  \
                                                                                                     \
         /* Number of obtained polyline primitives */                                                \
         FIELD_ACTION(unsigned int, polylinePrimitives, "");                                         \
+                                                                                                    \
+        /* Time spent on Polyline processing */                                                     \
+        FIELD_ACTION(float, elapsedTimeForPolylineProcessing, "s");                                 \
                                                                                                     \
         /* Time spent on Point rules evaluation */                                                  \
         FIELD_ACTION(float, elapsedTimeForPointEvaluation, "s");                                    \
@@ -69,11 +84,44 @@ namespace OsmAnd
         /* Number of obtained point primitives */                                                   \
         FIELD_ACTION(unsigned int, pointPrimitives, "");                                            \
                                                                                                     \
+        /* Time spent on Point processing */                                                        \
+        FIELD_ACTION(float, elapsedTimeForPointProcessing, "s");                                    \
+                                                                                                    \
         /* Time spent on sorting and filtering primitives */                                        \
         FIELD_ACTION(float, elapsedTimeForSortingAndFilteringPrimitives, "s");                      \
                                                                                                     \
         /* Time spent on obtaining primitives symbols */                                            \
         FIELD_ACTION(float, elapsedTimeForObtainingPrimitivesSymbols, "s");                         \
+                                                                                                    \
+        /* Time spent on processing symbols groups */                                               \
+        FIELD_ACTION(float, elapsedTimeForSymbolsGroupsProcessing, "s");                            \
+                                                                                                    \
+        /* Number of processed symbols groups */                                                    \
+        FIELD_ACTION(unsigned int, symbolsGroupsProcessed, "");                                     \
+                                                                                                    \
+        /* Time spent on text symbols evaluation */                                                 \
+        FIELD_ACTION(float, elapsedTimeForTextSymbolsEvaluation, "s");                              \
+                                                                                                    \
+        /* Number of text symbols evaluations */                                                    \
+        FIELD_ACTION(unsigned int, textSymbolsEvaluations, "");                                     \
+                                                                                                    \
+        /* Time spent on processing text symbols */                                                 \
+        FIELD_ACTION(float, elapsedTimeForTextSymbolsProcessing, "s");                              \
+                                                                                                    \
+        /* Number of rejected text symbols */                                                       \
+        FIELD_ACTION(unsigned int, rejectedTextSymbols, "");                                        \
+                                                                                                    \
+        /* Number of obtained text symbols */                                                       \
+        FIELD_ACTION(unsigned int, obtainedTextSymbols, "");                                        \
+                                                                                                    \
+        /* Time spent on processing icon symbols */                                                 \
+        FIELD_ACTION(float, elapsedTimeForIconSymbolsProcessing, "s");                              \
+                                                                                                    \
+        /* Number of rejected icon symbols */                                                       \
+        FIELD_ACTION(unsigned int, rejectedIconSymbols, "");                                        \
+                                                                                                    \
+        /* Number of obtained icon symbols */                                                       \
+        FIELD_ACTION(unsigned int, obtainedIconSymbols, "");                                        \
                                                                                                     \
         /* Time spent totally */                                                                    \
         FIELD_ACTION(float, elapsedTime, "s");

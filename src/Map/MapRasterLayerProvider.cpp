@@ -1,6 +1,7 @@
 #include "MapRasterLayerProvider.h"
 #include "MapRasterLayerProvider_P.h"
 
+#include "MapDataProviderHelpers.h"
 #include "MapPrimitivesProvider.h"
 #include "MapPrimitiviser.h"
 #include "MapPresentationEnvironment.h"
@@ -35,41 +36,38 @@ uint32_t OsmAnd::MapRasterLayerProvider::getTileSize() const
     return primitivesProvider->tileSize;
 }
 
-bool OsmAnd::MapRasterLayerProvider::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<IMapTiledDataProvider::Data>& outTiledData,
-    std::shared_ptr<Metric>* pOutMetric /*= nullptr*/,
-    const IQueryController* const queryController /*= nullptr*/)
+bool OsmAnd::MapRasterLayerProvider::supportsNaturalObtainData() const
 {
-    if (pOutMetric)
-    {
-        if (!pOutMetric->get() || !dynamic_cast<MapRasterLayerProvider_Metrics::Metric_obtainData*>(pOutMetric->get()))
-            pOutMetric->reset(new MapRasterLayerProvider_Metrics::Metric_obtainData());
-        else
-            pOutMetric->get()->reset();
-    }
-
-    std::shared_ptr<Data> tiledData;
-    const auto result = _p->obtainData(
-        tileId,
-        zoom,
-        tiledData,
-        pOutMetric ? static_cast<MapRasterLayerProvider_Metrics::Metric_obtainData*>(pOutMetric->get()) : nullptr,
-        queryController);
-    outTiledData = tiledData;
-
-    return result;
+    return true;
 }
 
 bool OsmAnd::MapRasterLayerProvider::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<Data>& outTiledData,
-    MapRasterLayerProvider_Metrics::Metric_obtainData* const metric,
-    const IQueryController* const queryController)
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
 {
-    return _p->obtainData(tileId, zoom, outTiledData, metric, queryController);
+    return _p->obtainData(request, outData, pOutMetric);
+}
+
+bool OsmAnd::MapRasterLayerProvider::supportsNaturalObtainDataAsync() const
+{
+    return false;
+}
+
+void OsmAnd::MapRasterLayerProvider::obtainDataAsync(
+    const IMapDataProvider::Request& request,
+    const IMapDataProvider::ObtainDataAsyncCallback callback,
+    const bool collectMetric /*= false*/)
+{
+    MapDataProviderHelpers::nonNaturalObtainDataAsync(this, request, callback, collectMetric);
+}
+
+bool OsmAnd::MapRasterLayerProvider::obtainRasterizedTile(
+    const Request& request,
+    std::shared_ptr<Data>& outData,
+    MapRasterLayerProvider_Metrics::Metric_obtainData* const metric /*= nullptr*/)
+{
+    return _p->obtainRasterizedTile(request, outData, metric);
 }
 
 OsmAnd::ZoomLevel OsmAnd::MapRasterLayerProvider::getMinZoom() const
@@ -80,27 +78,6 @@ OsmAnd::ZoomLevel OsmAnd::MapRasterLayerProvider::getMinZoom() const
 OsmAnd::ZoomLevel OsmAnd::MapRasterLayerProvider::getMaxZoom() const
 {
     return _p->getMaxZoom();
-}
-
-OsmAnd::IMapDataProvider::SourceType OsmAnd::MapRasterLayerProvider::getSourceType() const
-{
-    const auto underlyingSourceType = primitivesProvider->getSourceType();
-
-    switch (underlyingSourceType)
-    {
-        case IMapDataProvider::SourceType::LocalDirect:
-        case IMapDataProvider::SourceType::LocalGenerated:
-            return IMapDataProvider::SourceType::LocalGenerated;
-
-        case IMapDataProvider::SourceType::NetworkDirect:
-        case IMapDataProvider::SourceType::NetworkGenerated:
-            return IMapDataProvider::SourceType::NetworkGenerated;
-
-        case IMapDataProvider::SourceType::MiscDirect:
-        case IMapDataProvider::SourceType::MiscGenerated:
-        default:
-            return IMapDataProvider::SourceType::MiscGenerated;
-    }
 }
 
 OsmAnd::MapRasterLayerProvider::Data::Data(

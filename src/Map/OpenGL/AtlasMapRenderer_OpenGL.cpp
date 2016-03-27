@@ -122,22 +122,28 @@ bool OsmAnd::AtlasMapRenderer_OpenGL::doRenderFrame(IMapRenderer_Metrics::Metric
     GL_CHECK_RESULT;
 
     // Render the sky
-    Stopwatch skyStageStopwatch(metric != nullptr);
-    if (!_skyStage->render(metric))
-        ok = false;
-    if (metric)
-        metric->elapsedTimeForSkyStage = skyStageStopwatch.elapsed();
+    if (!currentDebugSettings->disableSkyStage)
+    {
+        Stopwatch skyStageStopwatch(metric != nullptr);
+        if (!_skyStage->render(metric))
+            ok = false;
+        if (metric)
+            metric->elapsedTimeForSkyStage = skyStageStopwatch.elapsed();
+    }
 
     // Change depth test function prior to raster map stage and further stages
     glDepthFunc(GL_LEQUAL);
     GL_CHECK_RESULT;
 
     // Raster map stage is rendered without blending, since it's done in fragment shader
-    Stopwatch mapLayersStageStopwatch(metric != nullptr);
-    if (!_mapLayersStage->render(metric))
-        ok = false;
-    if (metric)
-        metric->elapsedTimeForMapLayersStage = mapLayersStageStopwatch.elapsed();
+    if (!currentDebugSettings->disableMapLayersStage)
+    {
+        Stopwatch mapLayersStageStopwatch(metric != nullptr);
+        if (!_mapLayersStage->render(metric))
+            ok = false;
+        if (metric)
+            metric->elapsedTimeForMapLayersStage = mapLayersStageStopwatch.elapsed();
+    }
 
     // Turn on blending since now objects with transparency are going to be rendered
     glEnable(GL_BLEND);
@@ -145,15 +151,18 @@ bool OsmAnd::AtlasMapRenderer_OpenGL::doRenderFrame(IMapRenderer_Metrics::Metric
 
     // Render map symbols without writing depth buffer, since symbols use own sorting and intersection checking
     //NOTE: Currently map symbols are incompatible with height-maps
-    Stopwatch symbolsStageStopwatch(metric != nullptr);
-    glDepthMask(GL_FALSE);
-    GL_CHECK_RESULT;
-    if (!_symbolsStage->render(metric))
-        ok = false;
-    glDepthMask(GL_TRUE);
-    GL_CHECK_RESULT;
-    if (metric)
-        metric->elapsedTimeForSymbolsStage = symbolsStageStopwatch.elapsed();
+    if (!currentDebugSettings->disableSymbolsStage)
+    {
+        Stopwatch symbolsStageStopwatch(metric != nullptr);
+        glDepthMask(GL_FALSE);
+        GL_CHECK_RESULT;
+        if (!_symbolsStage->render(metric))
+            ok = false;
+        glDepthMask(GL_TRUE);
+        GL_CHECK_RESULT;
+        if (metric)
+            metric->elapsedTimeForSymbolsStage = symbolsStageStopwatch.elapsed();
+    }
 
     // Restore straight color blending
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -431,54 +440,77 @@ void OsmAnd::AtlasMapRenderer_OpenGL::computeVisibleTileset(InternalState* inter
     p[1] = internalState->frustum2D.p1 / TileSize3D;
     p[2] = internalState->frustum2D.p2 / TileSize3D;
     p[3] = internalState->frustum2D.p3 / TileSize3D;
-
+    
     // "Round"-up tile indices
     // In-tile normalized position is added, since all tiles are going to be
     // translated in opposite direction during rendering
-    p[0] += internalState->targetInTileOffsetN;
-    p[1] += internalState->targetInTileOffsetN;
-    p[2] += internalState->targetInTileOffsetN;
-    p[3] += internalState->targetInTileOffsetN;
+    for(int i = 0; i < 4; i++) {
+        p[i].x += internalState->targetInTileOffsetN.x ;
+        p[i].y += internalState->targetInTileOffsetN.y ;
+    }
 
-    //NOTE: so far scanline does not work exactly as expected, so temporary switch to old implementation
+    // Determine visible tiles set
     {
         QSet<TileId> visibleTiles;
-        PointI p0(qFloor(p[0].x), qFloor(p[0].y));
-        PointI p1(qFloor(p[1].x), qFloor(p[1].y));
-        PointI p2(qFloor(p[2].x), qFloor(p[2].y));
-        PointI p3(qFloor(p[3].x), qFloor(p[3].y));
-
-        const auto xMin = qMin(qMin(p0.x, p1.x), qMin(p2.x, p3.x));
-        const auto xMax = qMax(qMax(p0.x, p1.x), qMax(p2.x, p3.x));
-        const auto yMin = qMin(qMin(p0.y, p1.y), qMin(p2.y, p3.y));
-        const auto yMax = qMax(qMax(p0.y, p1.y), qMax(p2.y, p3.y));
-        for (auto x = xMin; x <= xMax; x++)
+        const int yMin = qCeil(qMin(qMin(p[0].y, p[1].y), qMin(p[2].y, p[3].y)));
+        const int yMax = qFloor(qMax(qMax(p[0].y + 1, p[1].y + 1), qMax(p[2].y + 1, p[3].y + 1)));
+        int pxMin = std::numeric_limits<int32_t>::max();
+        int pxMax = std::numeric_limits<int32_t>::min();
+        float x;
+        for (int y = yMin; y <= yMax; y++)
         {
-            for (auto y = yMin; y <= yMax; y++)
+            int xMin = std::numeric_limits<int32_t>::max();
+            int xMax = std::numeric_limits<int32_t>::min();
+            for (int k = 0; k < 4; k++)
+            {
+                if (Utilities::rayIntersectX(p[k % 4], p[(k + 1) % 4], y, x))
+                {
+                    xMin = qMin(xMin, qFloor(x));
+                    xMax = qMax(xMax, qFloor(x));
+                }
+                if (p[k % 4].y > y - 1 && p[k % 4].y < y)
+                {
+                    xMin = qMin(xMin, qFloor(p[k % 4].x));
+                    xMax = qMax(xMax, qFloor(p[k % 4].x));
+                }
+            }
+            for (auto x = qMin(xMin, pxMin); x <= qMax(xMax, pxMax); x++)
             {
                 TileId tileId;
                 tileId.x = x + internalState->targetTileId.x;
-                tileId.y = y + internalState->targetTileId.y;
-
+                tileId.y = y - 1 + internalState->targetTileId.y;
                 visibleTiles.insert(tileId);
             }
+            pxMin = xMin;
+            pxMax = xMax;
         }
 
-        internalState->visibleTiles = visibleTiles.toList();
+        internalState->visibleTiles.resize(0);
+        for (const auto& tileId : constOf(visibleTiles))
+            internalState->visibleTiles.push_back(tileId);
     }
-    /*
-    //TODO: Find visible tiles using scanline fill
-    _visibleTiles.clear();
-    Utilities::scanlineFillPolygon(4, &p[0],
-    [this, pC](const PointI& point)
-    {
-    TileId tileId;
-    tileId.x = point.x;// + _targetTile.x;
-    tileId.y = point.y;// + _targetTile.y;
 
-    _visibleTiles.insert(tileId);
-    });
-    */
+    // Normalize and make unique visible tiles
+    QSet<TileId> uniqueTiles;
+    for (const auto& tileId : constOf(internalState->visibleTiles))
+        uniqueTiles.insert(Utilities::normalizeTileId(tileId, state.zoomLevel));
+    internalState->uniqueTiles.resize(0);
+    for (const auto& tileId : constOf(uniqueTiles))
+        internalState->uniqueTiles.push_back(tileId);
+
+    // Sort visible tiles by distance from target
+    std::sort(internalState->uniqueTiles,
+        [internalState]
+        (const TileId& l, const TileId& r) -> bool
+        {
+            const auto lx = l.x - internalState->targetTileId.x;
+            const auto ly = l.y - internalState->targetTileId.y;
+
+            const auto rx = r.x - internalState->targetTileId.x;
+            const auto ry = r.y - internalState->targetTileId.y;
+
+            return (lx*lx + ly*ly) < (rx*rx + ry*ry);
+        });
 }
 
 OsmAnd::GPUAPI_OpenGL* OsmAnd::AtlasMapRenderer_OpenGL::getGPUAPI() const

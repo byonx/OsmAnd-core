@@ -6,6 +6,7 @@
 #include <iostream>
 #include <algorithm>
 #include <functional>
+#include <iterator>
 #include <type_traits>
 
 #include <OsmAndCore/QtExtensions.h>
@@ -13,10 +14,13 @@
 #include <QHash>
 #include <QMap>
 #include <QList>
+#include <QLinkedList>
 #include <QVector>
 #include <OsmAndCore/restore_internal_warnings.h>
 
 #include <OsmAndCore.h>
+#include <OsmAndCore/QKeyIterator.h>
+#include <OsmAndCore/QKeyValueIterator.h>
 
 namespace OsmAnd
 {
@@ -36,6 +40,12 @@ namespace OsmAnd
     inline Q_DECL_CONSTEXPR QMutableListIterator<T> mutableIteratorOf(QList<T>& container)
     {
         return QMutableListIterator<T>(container);
+    }
+
+    template<typename T>
+    inline Q_DECL_CONSTEXPR QMutableLinkedListIterator<T> mutableIteratorOf(QLinkedList<T>& container)
+    {
+        return QMutableLinkedListIterator<T>(container);
     }
 
     template<typename T>
@@ -63,6 +73,12 @@ namespace OsmAnd
     }
 
     template<typename T>
+    inline Q_DECL_CONSTEXPR QLinkedListIterator<T> iteratorOf(const QLinkedList<T>& container)
+    {
+        return QLinkedListIterator<T>(container);
+    }
+
+    template<typename T>
     inline Q_DECL_CONSTEXPR QVectorIterator<T> iteratorOf(const QVector<T>& container)
     {
         return QVectorIterator<T>(container);
@@ -86,6 +102,64 @@ namespace OsmAnd
 
         for (const auto& item : input)
             result.insert(keyGetter(item), item);
+
+        return result;
+    }
+
+    template<typename KEY, typename VALUE>
+    inline QHash< KEY, VALUE > hashFrom(const QMap<KEY, VALUE>& input)
+    {
+        QHash< KEY, VALUE > result;
+
+        const auto citEnd = input.cend();
+        for (auto citEntry = input.cbegin(); citEntry != citEnd; ++citEntry)
+            result.insert(citEntry.key(), citEntry.value());
+
+        return result;
+    }
+
+    template<typename KEY, typename VALUE>
+    inline QHash< KEY, VALUE > mapFrom(const QList<VALUE>& input, const std::function<KEY(const VALUE& item)> keyGetter)
+    {
+        QMap< KEY, VALUE > result;
+
+        for (const auto& item : input)
+            result.insert(keyGetter(item), item);
+
+        return result;
+    }
+
+    template<typename KEY, typename VALUE>
+    inline QMap< KEY, VALUE > mapFrom(const QVector<VALUE>& input, const std::function<KEY(const VALUE& item)> keyGetter)
+    {
+        QMap< KEY, VALUE > result;
+
+        for (const auto& item : input)
+            result.insert(keyGetter(item), item);
+
+        return result;
+    }
+
+    template<typename KEY, typename VALUE>
+    inline QMap< KEY, VALUE > mapFrom(const QHash<KEY, VALUE>& input)
+    {
+        QMap< KEY, VALUE > result;
+
+        const auto citEnd = input.cend();
+        for (auto citEntry = input.cbegin(); citEntry != citEnd; ++citEntry)
+            result.insert(citEntry.key(), citEntry.value());
+
+        return result;
+    }
+
+    template<typename ITEM>
+    inline QVector<ITEM> vectorFrom(const QSet<ITEM>& input)
+    {
+        QVector<ITEM> result;
+        result.reserve(input.size());
+
+        for (const auto& item : input)
+            result.push_back(item);
 
         return result;
     }
@@ -213,7 +287,7 @@ namespace OsmAnd
     }
 
     template<typename CONTAINER>
-    inline auto qMaxElement(const CONTAINER& container) -> typename CONTAINER::const_iterator
+    inline auto qMaxElement(CONTAINER container) -> decltype(std::begin(container))
     {
         auto itElement = std::begin(container);
         auto itMaxElement = itElement;
@@ -227,19 +301,18 @@ namespace OsmAnd
         return itMaxElement;
     }
 
-    template<typename CONTAINER>
-    inline auto qMaxElement(CONTAINER& container) -> typename CONTAINER::iterator
+    template<typename OUTPUT_CONTAINER, typename INPUT_CONTAINER>
+    inline OUTPUT_CONTAINER qTransform(
+        const INPUT_CONTAINER& input,
+        const std::function<OUTPUT_CONTAINER(typename std::iterator_traits<decltype(std::begin(input))>::reference)> transform)
     {
-        auto itElement = std::begin(container);
-        auto itMaxElement = itElement;
-        const auto itEnd = std::end(container);
-        for (++itElement; itElement != itEnd; ++itElement)
-        {
-            if (*itElement > *itMaxElement)
-                itMaxElement = itElement;
-        }
+        OUTPUT_CONTAINER output;
 
-        return itMaxElement;
+        const auto itEnd = std::end(input);
+        for (auto itItem = std::begin(input); itItem != itEnd; ++itItem)
+            output = output + transform(*itItem);
+
+        return output;
     }
 }
 

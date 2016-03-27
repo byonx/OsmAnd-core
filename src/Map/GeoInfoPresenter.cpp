@@ -19,155 +19,176 @@ std::shared_ptr<OsmAnd::IMapObjectsProvider> OsmAnd::GeoInfoPresenter::createMap
     return _p->createMapObjectsProvider();
 }
 
-std::shared_ptr<const OsmAnd::GeoInfoPresenter::MapObject::EncodingDecodingRules> OsmAnd::GeoInfoPresenter::MapObject::defaultEncodingDecodingRules(OsmAnd::modifyAndReturn(
-    std::shared_ptr<OsmAnd::GeoInfoPresenter::MapObject::EncodingDecodingRules>(new OsmAnd::GeoInfoPresenter::MapObject::EncodingDecodingRules()),
-    static_cast< std::function<void(std::shared_ptr<OsmAnd::GeoInfoPresenter::MapObject::EncodingDecodingRules>& instance)> >([]
-    (std::shared_ptr<OsmAnd::GeoInfoPresenter::MapObject::EncodingDecodingRules>& rules) -> void
-    {
-        rules->verifyRequiredRulesExist();
-    })));
-
-OsmAnd::GeoInfoPresenter::MapObject::EncodingDecodingRules::EncodingDecodingRules()
-    : waypoint_encodingRuleId(std::numeric_limits<uint32_t>::max())
-    , trackpoint_encodingRuleId(std::numeric_limits<uint32_t>::max())
-    , routepoint_encodingRuleId(std::numeric_limits<uint32_t>::max())
-    , trackline_encodingRuleId(std::numeric_limits<uint32_t>::max())
-    , routeline_encodingRuleId(std::numeric_limits<uint32_t>::max())
-    , waypointsPresent_encodingRuleId(std::numeric_limits<uint32_t>::max())
-    , waypointsNotPresent_encodingRuleId(std::numeric_limits<uint32_t>::max())
-    , trackpointsPresent_encodingRuleId(std::numeric_limits<uint32_t>::max())
-    , trackpointsNotPresent_encodingRuleId(std::numeric_limits<uint32_t>::max())
-    , routepointsPresent_encodingRuleId(std::numeric_limits<uint32_t>::max())
-    , routepointsNotPresent_encodingRuleId(std::numeric_limits<uint32_t>::max())
+OsmAnd::GeoInfoPresenter::MapObject::AttributeMapping::AttributeMapping()
+    : waypointAttributeId(std::numeric_limits<uint32_t>::max())
+    , trackpointAttributeId(std::numeric_limits<uint32_t>::max())
+    , routepointAttributeId(std::numeric_limits<uint32_t>::max())
+    , tracklineAttributeId(std::numeric_limits<uint32_t>::max())
+    , routelineAttributeId(std::numeric_limits<uint32_t>::max())
+    , waypointsPresentAttributeId(std::numeric_limits<uint32_t>::max())
+    , waypointsNotPresentAttributeId(std::numeric_limits<uint32_t>::max())
+    , trackpointsPresentAttributeId(std::numeric_limits<uint32_t>::max())
+    , trackpointsNotPresentAttributeId(std::numeric_limits<uint32_t>::max())
+    , routepointsPresentAttributeId(std::numeric_limits<uint32_t>::max())
+    , routepointsNotPresentAttributeId(std::numeric_limits<uint32_t>::max())
 {
 }
 
-OsmAnd::GeoInfoPresenter::MapObject::EncodingDecodingRules::~EncodingDecodingRules()
+OsmAnd::GeoInfoPresenter::MapObject::AttributeMapping::~AttributeMapping()
 {
 }
 
-void OsmAnd::GeoInfoPresenter::MapObject::EncodingDecodingRules::createRequiredRules(uint32_t& lastUsedRuleId)
+void OsmAnd::GeoInfoPresenter::MapObject::AttributeMapping::registerRequiredMapping(uint32_t& lastUsedEntryId)
 {
-    if (waypoint_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (waypointAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("osmand"), QLatin1String("file_waypoint"));
     }
 
-    if (trackpoint_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (trackpointAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("osmand"), QLatin1String("file_trackpoint"));
     }
 
-    if (routepoint_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (routepointAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("osmand"), QLatin1String("file_routepoint"));
     }
 
-    if (trackline_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (tracklineAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("osmand"), QLatin1String("file_trackline"));
     }
 
-    if (routeline_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (routelineAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("osmand"), QLatin1String("file_routeline"));
     }
 
-    if (routeline_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (routelineAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("osmand"), QLatin1String("file_routeline"));
     }
 
-    if (waypointsPresent_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (waypointsPresentAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("file_has_waypoints"), QLatin1String("true"));
     }
 
-    if (waypointsNotPresent_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (waypointsNotPresentAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("file_has_waypoints"), QLatin1String("false"));
     }
 
-    if (trackpointsPresent_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (trackpointsPresentAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("file_has_trackpoints"), QLatin1String("true"));
     }
 
-    if (trackpointsNotPresent_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (trackpointsNotPresentAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("file_has_trackpoints"), QLatin1String("false"));
     }
 
-    if (routepointsPresent_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (routepointsPresentAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("file_has_routepoints"), QLatin1String("true"));
     }
 
-    if (routepointsNotPresent_encodingRuleId == std::numeric_limits<uint32_t>::max())
+    if (routepointsNotPresentAttributeId == std::numeric_limits<uint32_t>::max())
     {
-        addRule(lastUsedRuleId++,
+        registerMapping(++lastUsedEntryId,
             QLatin1String("file_has_routepoints"), QLatin1String("false"));
     }
 }
 
-uint32_t OsmAnd::GeoInfoPresenter::MapObject::EncodingDecodingRules::addRule(const uint32_t ruleId, const QString& ruleTag, const QString& ruleValue)
+void OsmAnd::GeoInfoPresenter::MapObject::AttributeMapping::registerMapping(
+    const uint32_t id,
+    const QString& tag,
+    const QString& value)
 {
-    OsmAnd::MapObject::EncodingDecodingRules::addRule(ruleId, ruleTag, ruleValue);
+    OsmAnd::MapObject::AttributeMapping::registerMapping(id, tag, value);
 
-    if (QLatin1String("osmand") == ruleTag && QLatin1String("file_waypoint") == ruleValue)
-        waypoint_encodingRuleId = ruleId;
-    else if (QLatin1String("osmand") == ruleTag && QLatin1String("file_trackpoint") == ruleValue)
-        trackpoint_encodingRuleId = ruleId;
-    else if (QLatin1String("osmand") == ruleTag && QLatin1String("file_routepoint") == ruleValue)
-        routepoint_encodingRuleId = ruleId;
-    else if (QLatin1String("osmand") == ruleTag && QLatin1String("file_trackline") == ruleValue)
-        trackline_encodingRuleId = ruleId;
-    else if (QLatin1String("osmand") == ruleTag && QLatin1String("file_routeline") == ruleValue)
-        routeline_encodingRuleId = ruleId;
-    else if (QLatin1String("file_has_waypoints") == ruleTag && QLatin1String("true") == ruleValue)
-        waypointsPresent_encodingRuleId = ruleId;
-    else if (QLatin1String("file_has_waypoints") == ruleTag && QLatin1String("false") == ruleValue)
-        waypointsNotPresent_encodingRuleId = ruleId;
-    else if (QLatin1String("file_has_trackpoints") == ruleTag && QLatin1String("true") == ruleValue)
-        trackpointsPresent_encodingRuleId = ruleId;
-    else if (QLatin1String("file_has_trackpoints") == ruleTag && QLatin1String("false") == ruleValue)
-        trackpointsNotPresent_encodingRuleId = ruleId;
-    else if (QLatin1String("file_has_routepoints") == ruleTag && QLatin1String("true") == ruleValue)
-        routepointsPresent_encodingRuleId = ruleId;
-    else if (QLatin1String("file_has_routepoints") == ruleTag && QLatin1String("false") == ruleValue)
-        routepointsNotPresent_encodingRuleId = ruleId;
-
-    return ruleId;
+    if (QLatin1String("osmand") == tag && QLatin1String("file_waypoint") == value)
+        waypointAttributeId = id;
+    else if (QLatin1String("osmand") == tag && QLatin1String("file_trackpoint") == value)
+        trackpointAttributeId = id;
+    else if (QLatin1String("osmand") == tag && QLatin1String("file_routepoint") == value)
+        routepointAttributeId = id;
+    else if (QLatin1String("osmand") == tag && QLatin1String("file_trackline") == value)
+        tracklineAttributeId = id;
+    else if (QLatin1String("osmand") == tag && QLatin1String("file_routeline") == value)
+        routelineAttributeId = id;
+    else if (QLatin1String("file_has_waypoints") == tag && QLatin1String("true") == value)
+        waypointsPresentAttributeId = id;
+    else if (QLatin1String("file_has_waypoints") == tag && QLatin1String("false") == value)
+        waypointsNotPresentAttributeId = id;
+    else if (QLatin1String("file_has_trackpoints") == tag && QLatin1String("true") == value)
+        trackpointsPresentAttributeId = id;
+    else if (QLatin1String("file_has_trackpoints") == tag && QLatin1String("false") == value)
+        trackpointsNotPresentAttributeId = id;
+    else if (QLatin1String("file_has_routepoints") == tag && QLatin1String("true") == value)
+        routepointsPresentAttributeId = id;
+    else if (QLatin1String("file_has_routepoints") == tag && QLatin1String("false") == value)
+        routepointsNotPresentAttributeId = id;
 }
 
 OsmAnd::GeoInfoPresenter::MapObject::MapObject(
-    const std::shared_ptr<const GeoInfoDocument>& geoInfoDocument_)
+    const std::shared_ptr<const GeoInfoDocument>& geoInfoDocument_,
+    const std::shared_ptr<const GeoInfoDocument::ExtraData>& extraData /*= nullptr*/)
     : geoInfoDocument(geoInfoDocument_)
 {
-    encodingDecodingRules = defaultEncodingDecodingRules;
+    const auto mapping = std::make_shared<AttributeMapping>();
+    attributeMapping = mapping;
+    
+    if (extraData)
+    {
+        auto lastUsedRuleId = 0;
 
-    additionalTypesRuleIds.append(geoInfoDocument->locationMarks.isEmpty()
-        ? defaultEncodingDecodingRules->waypointsNotPresent_encodingRuleId
-        : defaultEncodingDecodingRules->waypointsPresent_encodingRuleId);
+        const auto values = extraData->getValues();
+        for (const auto valueEntry : rangeOf(constOf(values)))
+        {
+            const auto& tag = valueEntry.key();
+            auto value = valueEntry.value().toString();
 
-    additionalTypesRuleIds.append(geoInfoDocument->tracks.isEmpty()
-        ? defaultEncodingDecodingRules->trackpointsNotPresent_encodingRuleId
-        : defaultEncodingDecodingRules->trackpointsPresent_encodingRuleId);
+            if (tag == QLatin1String("color"))
+                value = Utilities::resolveColorFromPalette(value, false);
 
-    additionalTypesRuleIds.append(geoInfoDocument->routes.isEmpty()
-        ? defaultEncodingDecodingRules->routepointsNotPresent_encodingRuleId
-        : defaultEncodingDecodingRules->routepointsPresent_encodingRuleId);
+            uint32_t attributeId;
+            if (!mapping->encodeTagValue(tag, value, &attributeId))
+            {
+                attributeId = ++lastUsedRuleId;
+                mapping->registerMapping(attributeId, tag, value);
+            }
+
+            additionalAttributeIds.append(attributeId);
+        }
+    }
+
+    mapping->verifyRequiredMappingRegistered();
+
+    additionalAttributeIds.append(geoInfoDocument->locationMarks.isEmpty()
+        ? mapping->waypointsNotPresentAttributeId
+        : mapping->waypointsPresentAttributeId);
+
+    additionalAttributeIds.append(geoInfoDocument->tracks.isEmpty()
+        ? mapping->trackpointsNotPresentAttributeId
+        : mapping->trackpointsPresentAttributeId);
+
+    additionalAttributeIds.append(geoInfoDocument->routes.isEmpty()
+        ? mapping->routepointsNotPresentAttributeId
+        : mapping->routepointsPresentAttributeId);
 }
 
 OsmAnd::GeoInfoPresenter::MapObject::~MapObject()
@@ -177,7 +198,7 @@ OsmAnd::GeoInfoPresenter::MapObject::~MapObject()
 OsmAnd::GeoInfoPresenter::WaypointMapObject::WaypointMapObject(
     const std::shared_ptr<const GeoInfoDocument>& geoInfoDocument_,
     const std::shared_ptr<const GeoInfoDocument::LocationMark>& waypoint_)
-    : MapObject(geoInfoDocument_)
+    : MapObject(geoInfoDocument_, waypoint_->extraData)
     , waypoint(waypoint_)
 {
     const auto position31 = Utilities::convertLatLonTo31(waypoint->position);
@@ -186,11 +207,11 @@ OsmAnd::GeoInfoPresenter::WaypointMapObject::WaypointMapObject(
 
     if (!waypoint->name.isEmpty())
     {
-        captionsOrder.push_back(defaultEncodingDecodingRules->name_encodingRuleId);
-        captions[defaultEncodingDecodingRules->name_encodingRuleId] = waypoint->name;
+        captionsOrder.push_back(attributeMapping->nativeNameAttributeId);
+        captions[attributeMapping->nativeNameAttributeId] = waypoint->name;
     }
 
-    typesRuleIds.append(defaultEncodingDecodingRules->waypoint_encodingRuleId);
+    attributeIds.append(std::static_pointer_cast<const AttributeMapping>(attributeMapping)->waypointAttributeId);
 }
 
 OsmAnd::GeoInfoPresenter::WaypointMapObject::~WaypointMapObject()
@@ -202,7 +223,7 @@ OsmAnd::GeoInfoPresenter::TrackpointMapObject::TrackpointMapObject(
     const std::shared_ptr<const GeoInfoDocument::Track>& track_,
     const std::shared_ptr<const GeoInfoDocument::TrackSegment>& trackSegment_,
     const std::shared_ptr<const GeoInfoDocument::LocationMark>& trackpoint_)
-    : MapObject(geoInfoDocument_)
+    : MapObject(geoInfoDocument_, trackpoint_->extraData)
     , track(track_)
     , trackSegment(trackSegment_)
     , trackpoint(trackpoint_)
@@ -213,23 +234,22 @@ OsmAnd::GeoInfoPresenter::TrackpointMapObject::TrackpointMapObject(
 
     if (!trackpoint->name.isEmpty())
     {
-        captionsOrder.push_back(defaultEncodingDecodingRules->name_encodingRuleId);
-        captions[defaultEncodingDecodingRules->name_encodingRuleId] = trackpoint->name;
+        captionsOrder.push_back(attributeMapping->nativeNameAttributeId);
+        captions[attributeMapping->nativeNameAttributeId] = trackpoint->name;
     }
 
-    typesRuleIds.append(defaultEncodingDecodingRules->trackpoint_encodingRuleId);
+    attributeIds.append(std::static_pointer_cast<const AttributeMapping>(attributeMapping)->trackpointAttributeId);
 }
 
 OsmAnd::GeoInfoPresenter::TrackpointMapObject::~TrackpointMapObject()
 {
-    typesRuleIds.append(defaultEncodingDecodingRules->trackpoint_encodingRuleId);
 }
 
 OsmAnd::GeoInfoPresenter::TracklineMapObject::TracklineMapObject(
     const std::shared_ptr<const GeoInfoDocument>& geoInfoDocument_,
     const std::shared_ptr<const GeoInfoDocument::Track>& track_,
     const std::shared_ptr<const GeoInfoDocument::TrackSegment>& trackSegment_)
-    : MapObject(geoInfoDocument_)
+    : MapObject(geoInfoDocument_, trackSegment_->extraData)
     , track(track_)
     , trackSegment(trackSegment_)
 {
@@ -241,11 +261,11 @@ OsmAnd::GeoInfoPresenter::TracklineMapObject::TracklineMapObject(
     
     if (!track->name.isEmpty())
     {
-        captionsOrder.push_back(defaultEncodingDecodingRules->name_encodingRuleId);
-        captions[defaultEncodingDecodingRules->name_encodingRuleId] = track->name;
+        captionsOrder.push_back(attributeMapping->nativeNameAttributeId);
+        captions[attributeMapping->nativeNameAttributeId] = track->name;
     }
 
-    typesRuleIds.append(defaultEncodingDecodingRules->trackline_encodingRuleId);
+    attributeIds.append(std::static_pointer_cast<const AttributeMapping>(attributeMapping)->tracklineAttributeId);
 }
 
 OsmAnd::GeoInfoPresenter::TracklineMapObject::~TracklineMapObject()
@@ -255,8 +275,8 @@ OsmAnd::GeoInfoPresenter::TracklineMapObject::~TracklineMapObject()
 OsmAnd::GeoInfoPresenter::RoutepointMapObject::RoutepointMapObject(
     const std::shared_ptr<const GeoInfoDocument>& geoInfoDocument_,
     const std::shared_ptr<const GeoInfoDocument::Route>& route_,
-    const std::shared_ptr<const GeoInfoDocument::LocationMark   >& routepoint_)
-    : MapObject(geoInfoDocument_)
+    const std::shared_ptr<const GeoInfoDocument::LocationMark>& routepoint_)
+    : MapObject(geoInfoDocument_, routepoint_->extraData)
     , route(route_)
     , routepoint(routepoint_)
 {
@@ -266,11 +286,11 @@ OsmAnd::GeoInfoPresenter::RoutepointMapObject::RoutepointMapObject(
 
     if (!routepoint->name.isEmpty())
     {
-        captionsOrder.push_back(defaultEncodingDecodingRules->name_encodingRuleId);
-        captions[defaultEncodingDecodingRules->name_encodingRuleId] = routepoint->name;
+        captionsOrder.push_back(attributeMapping->nativeNameAttributeId);
+        captions[attributeMapping->nativeNameAttributeId] = routepoint->name;
     }
 
-    typesRuleIds.append(defaultEncodingDecodingRules->routepoint_encodingRuleId);
+    attributeIds.append(std::static_pointer_cast<const AttributeMapping>(attributeMapping)->routepointAttributeId);
 }
 
 OsmAnd::GeoInfoPresenter::RoutepointMapObject::~RoutepointMapObject()
@@ -280,7 +300,7 @@ OsmAnd::GeoInfoPresenter::RoutepointMapObject::~RoutepointMapObject()
 OsmAnd::GeoInfoPresenter::RoutelineMapObject::RoutelineMapObject(
     const std::shared_ptr<const GeoInfoDocument>& geoInfoDocument_,
     const std::shared_ptr<const GeoInfoDocument::Route>& route_)
-    : MapObject(geoInfoDocument_)
+    : MapObject(geoInfoDocument_, route_->extraData)
     , route(route_)
 {
     points31.resize(route->points.size());
@@ -291,11 +311,11 @@ OsmAnd::GeoInfoPresenter::RoutelineMapObject::RoutelineMapObject(
 
     if (!route->name.isEmpty())
     {
-        captionsOrder.push_back(defaultEncodingDecodingRules->name_encodingRuleId);
-        captions[defaultEncodingDecodingRules->name_encodingRuleId] = route->name;
+        captionsOrder.push_back(attributeMapping->nativeNameAttributeId);
+        captions[attributeMapping->nativeNameAttributeId] = route->name;
     }
 
-    typesRuleIds.append(defaultEncodingDecodingRules->routeline_encodingRuleId);
+    attributeIds.append(std::static_pointer_cast<const AttributeMapping>(attributeMapping)->routelineAttributeId);
 }
 
 OsmAnd::GeoInfoPresenter::RoutelineMapObject::~RoutelineMapObject()

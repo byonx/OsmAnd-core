@@ -16,9 +16,11 @@
 #include <OsmAndCore/ObfDataInterface.h>
 #include <OsmAndCore/ICoreResourcesProvider.h>
 #include <OsmAndCore/CoreResourcesEmbeddedBundle.h>
-#include <OsmAndCore/IFontsCollection.h>
-#include <OsmAndCore/CachingFontsCollection.h>
-#include <OsmAndCore/CoreFontsCollection.h>
+#include <OsmAndCore/IFontFinder.h>
+#include <OsmAndCore/CachingFontFinder.h>
+#include <OsmAndCore/ChainedFontFinder.h>
+#include <OsmAndCore/EmbeddedFontFinder.h>
+#include <OsmAndCore/SystemFontFinder.h>
 #include <OsmAndCore/TextRasterizer.h>
 #include <OsmAndCore/Logging.h>
 #include <OsmAndCore/ILogSink.h>
@@ -41,12 +43,10 @@
 #include <OsmAndCore/Map/UnresolvedMapStyle.h>
 #include <OsmAndCore/Map/MapStyleConstantValue.h>
 #include <OsmAndCore/Map/MapStyleValueDefinition.h>
+#include <OsmAndCore/Map/IMapStyle.h>
 #include <OsmAndCore/Map/ResolvedMapStyle.h>
 #include <OsmAndCore/Map/MapStylesCollection.h>
 #include <OsmAndCore/Map/MapStyleBuiltinValueDefinitions.h>
-#include <OsmAndCore/Map/IMapStylesPresetsCollection.h>
-#include <OsmAndCore/Map/MapStylesPresetsCollection.h>
-#include <OsmAndCore/Map/MapStylePreset.h>
 #include <OsmAndCore/Map/MapPresentationEnvironment.h>
 #include <OsmAndCore/Map/MapRendererState.h>
 #include <OsmAndCore/Map/MapRendererSetupOptions.h>
@@ -109,13 +109,14 @@ using namespace OsmAnd;
 	%shared_ptr(OsmAnd::ResourcesManager::UnmanagedResource)
 	%shared_ptr(OsmAnd::ResourcesManager::ObfMetadata)
 	%shared_ptr(OsmAnd::ResourcesManager::MapStyleMetadata)
-	%shared_ptr(OsmAnd::ResourcesManager::MapStylesPresetsMetadata)
 	%shared_ptr(OsmAnd::ResourcesManager::OnlineTileSourcesMetadata)
 	%shared_ptr(OsmAnd::ICoreResourcesProvider)
 	%shared_ptr(OsmAnd::CoreResourcesEmbeddedBundle)
-	%shared_ptr(OsmAnd::IFontsCollection)
-	%shared_ptr(OsmAnd::CachingFontsCollection)
-	%shared_ptr(OsmAnd::CoreFontsCollection)
+	%shared_ptr(OsmAnd::IFontFinder)
+	%shared_ptr(OsmAnd::CachingFontFinder)
+	%shared_ptr(OsmAnd::ChainedFontFinder)
+	%shared_ptr(OsmAnd::EmbeddedFontFinder)
+	%shared_ptr(OsmAnd::SystemFontFinder)
 	%shared_ptr(OsmAnd::TextRasterizer)
 	%shared_ptr(OsmAnd::Logger)
 	%shared_ptr(OsmAnd::ILogSink)
@@ -138,6 +139,12 @@ using namespace OsmAnd;
 	%shared_ptr(OsmAnd::UnresolvedMapStyle::Parameter)
 	%shared_ptr(OsmAnd::MapStyleConstantValue)
 	%shared_ptr(OsmAnd::MapStyleValueDefinition)
+	%shared_ptr(OsmAnd::IMapStyle)
+	%shared_ptr(OsmAnd::IMapStyle::Value)
+	%shared_ptr(OsmAnd::IMapStyle::IRuleNode)
+	%shared_ptr(OsmAnd::IMapStyle::IRule)
+	%shared_ptr(OsmAnd::IMapStyle::IAttribute)
+	%shared_ptr(OsmAnd::IMapStyle::IParameter)
 	%shared_ptr(OsmAnd::ResolvedMapStyle)
 	%shared_ptr(OsmAnd::ResolvedMapStyle::ResolvedValue)
 	%shared_ptr(OsmAnd::ResolvedMapStyle::RuleNode)
@@ -148,11 +155,8 @@ using namespace OsmAnd;
 	%shared_ptr(OsmAnd::ResolvedMapStyle::ParameterValueDefinition)
 	%shared_ptr(OsmAnd::IMapStylesCollection)
 	%shared_ptr(OsmAnd::MapStylesCollection)
-	%shared_ptr(OsmAnd::IMapStylesPresetsCollection)
-	%shared_ptr(OsmAnd::MapStylesPresetsCollection)
 	%shared_ptr(OsmAnd::MapStyleBuiltinValueDefinitions)
 	%shared_ptr(OsmAnd::MapStyleBuiltinValueDefinitions::MapStyleBuiltinValueDefinition)
-	%shared_ptr(OsmAnd::MapStylePreset)
 	%shared_ptr(OsmAnd::MapPresentationEnvironment)
 	%shared_ptr(OsmAnd::MapRendererSetupOptions)
 	%shared_ptr(OsmAnd::MapRendererConfiguration)
@@ -250,9 +254,11 @@ using namespace OsmAnd;
 %include <OsmAndCore/ResourcesManager.h>
 %include <OsmAndCore/ICoreResourcesProvider.h>
 %include <OsmAndCore/CoreResourcesEmbeddedBundle.h>
-%include <OsmAndCore/IFontsCollection.h>
-%include <OsmAndCore/CachingFontsCollection.h>
-%include <OsmAndCore/CoreFontsCollection.h>
+%include <OsmAndCore/IFontFinder.h>
+%include <OsmAndCore/CachingFontFinder.h>
+%include <OsmAndCore/ChainedFontFinder.h>
+%include <OsmAndCore/EmbeddedFontFinder.h>
+%include <OsmAndCore/SystemFontFinder.h>
 %include <OsmAndCore/TextRasterizer.h>
 %include <OsmAndCore/Logging.h>
 %include <OsmAndCore/ILogSink.h>
@@ -274,13 +280,11 @@ using namespace OsmAnd;
 %include <OsmAndCore/Map/UnresolvedMapStyle.h>
 %include <OsmAndCore/Map/MapStyleConstantValue.h>
 %include <OsmAndCore/Map/MapStyleValueDefinition.h>
+%include <OsmAndCore/Map/IMapStyle.h>
 %include <OsmAndCore/Map/ResolvedMapStyle.h>
 %include <OsmAndCore/Map/IMapStylesCollection.h>
 %include <OsmAndCore/Map/MapStylesCollection.h>
-%include <OsmAndCore/Map/IMapStylesPresetsCollection.h>
-%include <OsmAndCore/Map/MapStylesPresetsCollection.h>
 %include <OsmAndCore/Map/MapStyleBuiltinValueDefinitions.h>
-%include <OsmAndCore/Map/MapStylePreset.h>
 %include <OsmAndCore/Map/MapPresentationEnvironment.h>
 %include <OsmAndCore/Map/MapRendererState.h>
 %include <OsmAndCore/Map/MapRendererSetupOptions.h>

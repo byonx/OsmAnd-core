@@ -1,10 +1,13 @@
 #include "ObfDataInterface.h"
 
+#include "stdlib_common.h"
+
 #include "QtExtensions.h"
 #include "ignore_warnings_on_external_includes.h"
 #include <QSet>
 #include "restore_internal_warnings.h"
 
+#include "Ref.h"
 #include "ObfReader.h"
 #include "ObfInfo.h"
 #include "ObfMapSectionReader.h"
@@ -13,7 +16,14 @@
 #include "ObfRoutingSectionInfo.h"
 #include "ObfPoiSectionReader.h"
 #include "ObfPoiSectionInfo.h"
+#include "ObfAddressSectionReader.h"
+#include "ObfAddressSectionInfo.h"
+#include "ObfMapObject.h"
+#include "Amenity.h"
+#include "StreetGroup.h"
+#include "Street.h"
 #include "IQueryController.h"
+#include "FunctorQueryController.h"
 #include "QKeyValueIterator.h"
 
 OsmAnd::ObfDataInterface::ObfDataInterface(const QList< std::shared_ptr<const ObfReader> >& obfReaders_)
@@ -27,11 +37,11 @@ OsmAnd::ObfDataInterface::~ObfDataInterface()
 
 bool OsmAnd::ObfDataInterface::loadObfFiles(
     QList< std::shared_ptr<const ObfFile> >* outFiles /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/)
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
 {
     for (const auto& obfReader : constOf(obfReaders))
     {
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             return false;
 
         // Initialize OBF file
@@ -52,7 +62,7 @@ bool OsmAnd::ObfDataInterface::loadBinaryMapObjects(
     const ObfMapSectionReader::FilterByIdFunction filterById /*= nullptr*/,
     ObfMapSectionReader::DataBlocksCache* cache /*= nullptr*/,
     QList< std::shared_ptr<const ObfMapSectionReader::DataBlock> >* outReferencedCacheEntries /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/,
     ObfMapSectionReader_Metrics::Metric_loadMapObjects* const metric /*= nullptr*/)
 {
     auto mergedSurfaceType = MapSurfaceType::Undefined;
@@ -60,7 +70,7 @@ bool OsmAnd::ObfDataInterface::loadBinaryMapObjects(
 
     for (const auto& obfReader : constOf(obfReaders))
     {
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             return false;
 
         const auto& obfInfo = obfReader->obtainInfo();
@@ -85,7 +95,7 @@ bool OsmAnd::ObfDataInterface::loadBinaryMapObjects(
 
         for (const auto& mapSection : constOf(obfInfo->mapSections))
         {
-            if (controller && controller->isAborted())
+            if (queryController && queryController->isAborted())
                 return false;
 
             // Read objects from each map section
@@ -101,7 +111,7 @@ bool OsmAnd::ObfDataInterface::loadBinaryMapObjects(
                 nullptr,
                 cache,
                 outReferencedCacheEntries,
-                controller,
+                queryController,
                 metric);
             if (surfaceTypeToMerge != MapSurfaceType::Undefined)
             {
@@ -132,7 +142,7 @@ bool OsmAnd::ObfDataInterface::loadBinaryMapObjects(
 
         for (const auto& mapSection : constOf(obfInfo->mapSections))
         {
-            if (controller && controller->isAborted())
+            if (queryController && queryController->isAborted())
                 return false;
 
             // Read objects from each map section
@@ -148,7 +158,7 @@ bool OsmAnd::ObfDataInterface::loadBinaryMapObjects(
                 nullptr,
                 cache,
                 outReferencedCacheEntries,
-                controller,
+                queryController,
                 metric);
 
             // Basemap must always have a surface type defined
@@ -178,18 +188,18 @@ bool OsmAnd::ObfDataInterface::loadRoads(
     const ObfRoutingSectionReader::VisitorFunction visitor /*= nullptr*/,
     ObfRoutingSectionReader::DataBlocksCache* cache /*= nullptr*/,
     QList< std::shared_ptr<const ObfRoutingSectionReader::DataBlock> >* outReferencedCacheEntries /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/,
     ObfRoutingSectionReader_Metrics::Metric_loadRoads* const metric /*= nullptr*/)
 {
     for (const auto& obfReader : constOf(obfReaders))
     {
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             return false;
 
         const auto& obfInfo = obfReader->obtainInfo();
         for (const auto& routingSection : constOf(obfInfo->routingSections))
         {
-            if (controller && controller->isAborted())
+            if (queryController && queryController->isAborted())
                 return false;
 
             OsmAnd::ObfRoutingSectionReader::loadRoads(
@@ -202,7 +212,7 @@ bool OsmAnd::ObfDataInterface::loadRoads(
                 nullptr,
                 cache,
                 outReferencedCacheEntries,
-                controller,
+                queryController,
                 metric);
         }
     }
@@ -222,7 +232,7 @@ bool OsmAnd::ObfDataInterface::loadMapObjects(
     const FilterRoadsByIdFunction filterRoadsById /*= nullptr*/,
     ObfRoutingSectionReader::DataBlocksCache* roadsCache /*= nullptr*/,
     QList< std::shared_ptr<const ObfRoutingSectionReader::DataBlock> >* outReferencedRoadsCacheEntries /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/,
     ObfMapSectionReader_Metrics::Metric_loadMapObjects* const binaryMapObjectsMetric /*= nullptr*/,
     ObfRoutingSectionReader_Metrics::Metric_loadRoads* const roadsMetric /*= nullptr*/)
 {
@@ -233,7 +243,7 @@ bool OsmAnd::ObfDataInterface::loadMapObjects(
 
     for (const auto& obfReader : constOf(obfReaders))
     {
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             return false;
 
         const auto& obfInfo = obfReader->obtainInfo();
@@ -258,7 +268,7 @@ bool OsmAnd::ObfDataInterface::loadMapObjects(
 
         for (const auto& mapSection : constOf(obfInfo->mapSections))
         {
-            if (controller && controller->isAborted())
+            if (queryController && queryController->isAborted())
                 return false;
 
             // Remember that this section was processed (by name)
@@ -277,7 +287,7 @@ bool OsmAnd::ObfDataInterface::loadMapObjects(
                 nullptr,
                 binaryMapObjectsCache,
                 outReferencedBinaryMapObjectsCacheEntries,
-                controller,
+                queryController,
                 binaryMapObjectsMetric);
             if (surfaceTypeToMerge != MapSurfaceType::Undefined)
             {
@@ -308,7 +318,7 @@ bool OsmAnd::ObfDataInterface::loadMapObjects(
 
         for (const auto& mapSection : constOf(obfInfo->mapSections))
         {
-            if (controller && controller->isAborted())
+            if (queryController && queryController->isAborted())
                 return false;
 
             // Read objects from each map section
@@ -324,7 +334,7 @@ bool OsmAnd::ObfDataInterface::loadMapObjects(
                 nullptr,
                 binaryMapObjectsCache,
                 outReferencedBinaryMapObjectsCacheEntries,
-                controller,
+                queryController,
                 binaryMapObjectsMetric);
 
             // Basemap must always have a surface type defined
@@ -347,7 +357,7 @@ bool OsmAnd::ObfDataInterface::loadMapObjects(
     {
         for (const auto& obfReader : constOf(obfReaders))
         {
-            if (controller && controller->isAborted())
+            if (queryController && queryController->isAborted())
                 return false;
 
             const auto& obfInfo = obfReader->obtainInfo();
@@ -359,7 +369,7 @@ bool OsmAnd::ObfDataInterface::loadMapObjects(
             for (const auto& routingSection : constOf(obfInfo->routingSections))
             {
                 // Check if request is aborted
-                if (controller && controller->isAborted())
+                if (queryController && queryController->isAborted())
                     return false;
 
                 // Check that map section with same name was not processed from other file
@@ -377,7 +387,7 @@ bool OsmAnd::ObfDataInterface::loadMapObjects(
                     nullptr,
                     roadsCache,
                     outReferencedRoadsCacheEntries,
-                    controller,
+                    queryController,
                     roadsMetric);
             }
         }
@@ -389,17 +399,17 @@ bool OsmAnd::ObfDataInterface::loadMapObjects(
 bool OsmAnd::ObfDataInterface::loadAmenityCategories(
     QHash<QString, QStringList>* outCategories,
     const AreaI* const pBbox31 /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/)
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
 {
     for (const auto& obfReader : constOf(obfReaders))
     {
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             return false;
 
         const auto& obfInfo = obfReader->obtainInfo();
         for (const auto& poiSection : constOf(obfInfo->poiSections))
         {
-            if (controller && controller->isAborted())
+            if (queryController && queryController->isAborted())
                 return false;
 
             if (pBbox31)
@@ -418,7 +428,7 @@ bool OsmAnd::ObfDataInterface::loadAmenityCategories(
                 obfReader,
                 poiSection,
                 categories,
-                controller);
+                queryController);
 
             if (!categories)
                 continue;
@@ -437,22 +447,22 @@ bool OsmAnd::ObfDataInterface::loadAmenityCategories(
 
 bool OsmAnd::ObfDataInterface::loadAmenities(
     QList< std::shared_ptr<const OsmAnd::Amenity> >* outAmenities,
-    const ZoomLevel minZoom /*= MinZoomLevel*/,
-    const ZoomLevel maxZoom /*= MaxZoomLevel*/,
     const AreaI* const pBbox31 /*= nullptr*/,
+    const TileAcceptorFunction tileFilter /*= nullptr*/,
+    const ZoomLevel zoomFilter /*= InvalidZoomLevel*/,
     const QHash<QString, QStringList>* const categoriesFilter /*= nullptr*/,
     const ObfPoiSectionReader::VisitorFunction visitor /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/)
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
 {
     for (const auto& obfReader : constOf(obfReaders))
     {
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
             return false;
 
         const auto& obfInfo = obfReader->obtainInfo();
         for (const auto& poiSection : constOf(obfInfo->poiSections))
         {
-            if (controller && controller->isAborted())
+            if (queryController && queryController->isAborted())
                 return false;
 
             if (pBbox31)
@@ -474,7 +484,7 @@ bool OsmAnd::ObfDataInterface::loadAmenities(
                     obfReader,
                     poiSection,
                     categories,
-                    controller);
+                    queryController);
 
                 if (!categories)
                     continue;
@@ -509,12 +519,12 @@ bool OsmAnd::ObfDataInterface::loadAmenities(
                 obfReader,
                 poiSection,
                 outAmenities,
-                minZoom,
-                maxZoom,
                 pBbox31,
+                tileFilter,
+                zoomFilter,
                 categoriesFilter ? &categoriesFilterById : nullptr,
                 visitor,
-                controller);
+                queryController);
         }
     }
 
@@ -524,22 +534,163 @@ bool OsmAnd::ObfDataInterface::loadAmenities(
 bool OsmAnd::ObfDataInterface::scanAmenitiesByName(
     const QString& query,
     QList< std::shared_ptr<const OsmAnd::Amenity> >* outAmenities,
-    const ZoomLevel minZoom /*= MinZoomLevel*/,
-    const ZoomLevel maxZoom /*= MaxZoomLevel*/,
     const AreaI* const pBbox31 /*= nullptr*/,
+    const TileAcceptorFunction tileFilter /*= nullptr*/,
     const QHash<QString, QStringList>* const categoriesFilter /*= nullptr*/,
     const ObfPoiSectionReader::VisitorFunction visitor /*= nullptr*/,
-    const IQueryController* const controller /*= nullptr*/)
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
 {
+    typedef std::pair< std::shared_ptr<const ObfReader>, Ref<ObfPoiSectionInfo> > OrderedSection;
+    std::vector< OrderedSection > orderedSections;
     for (const auto& obfReader : constOf(obfReaders))
     {
-        if (controller && controller->isAborted())
+        if (queryController && queryController->isAborted())
+            return false;
+
+        const auto &obfInfo = obfReader->obtainInfo();
+        for (const auto& poiSection : constOf(obfInfo->poiSections))
+        {
+            if (queryController && queryController->isAborted())
+            {
+                return false;
+            }
+
+
+            if (pBbox31)
+            {
+                bool accept = false;
+                accept = accept || poiSection->area31.contains(*pBbox31);
+                accept = accept || poiSection->area31.intersects(*pBbox31);
+                accept = accept || pBbox31->contains(poiSection->area31);
+
+                if (!accept)
+                {
+                    continue;
+                }
+            }
+
+            orderedSections.push_back(OrderedSection(obfReader, poiSection));
+        }
+    }
+
+    if (pBbox31)
+    {
+        const auto bboxCenter = pBbox31->center();
+
+        // Sort blocks by data offset to force forward-only seeking
+        std::sort(
+            orderedSections,
+            [bboxCenter]
+            (const OrderedSection& l, const OrderedSection& r) -> bool
+            {
+                const auto lCenter = l.second->area31.center();
+                const auto lSqDistance = (lCenter - bboxCenter).squareNorm();
+
+                const auto rCenter = r.second->area31.center();
+                const auto rSqDistance = (rCenter - bboxCenter).squareNorm();
+
+                return lSqDistance < rSqDistance;
+            });
+    }
+
+    for (const auto& orderedSection : constOf(orderedSections))
+    {
+        if (queryController && queryController->isAborted())
+            return false;
+
+        const auto& obfReader = orderedSection.first;
+        const auto& poiSection = orderedSection.second;
+
+        QSet<ObfPoiCategoryId> categoriesFilterById;
+        if (categoriesFilter)
+        {
+            std::shared_ptr<const ObfPoiSectionCategories> categories;
+            OsmAnd::ObfPoiSectionReader::loadCategories(
+                obfReader,
+                poiSection,
+                categories,
+                queryController);
+
+            if (!categories)
+                continue;
+
+            for (const auto& categoriesFilterEntry : rangeOf(constOf(*categoriesFilter)))
+            {
+                const auto mainCategoryIndex = categories->mainCategories.indexOf(categoriesFilterEntry.key());
+                if (mainCategoryIndex < 0)
+                    continue;
+
+                const auto& subcategories = categories->subCategories[mainCategoryIndex];
+                if (categoriesFilterEntry.value().isEmpty())
+                {
+                    for (auto subCategoryIndex = 0; subCategoryIndex < subcategories.size(); subCategoryIndex++)
+                        categoriesFilterById.insert(ObfPoiCategoryId::create(mainCategoryIndex, subCategoryIndex));
+                }
+                else
+                {
+                    for (const auto& subcategory : constOf(categoriesFilterEntry.value()))
+                    {
+                        const auto subCategoryIndex = subcategories.indexOf(subcategory);
+                        if (subCategoryIndex < 0)
+                            continue;
+
+                        categoriesFilterById.insert(ObfPoiCategoryId::create(mainCategoryIndex, subCategoryIndex));
+                    }
+                }
+            }
+        }
+
+        OsmAnd::ObfPoiSectionReader::scanAmenitiesByName(
+            obfReader,
+            poiSection,
+            query,
+            outAmenities,
+            pBbox31,
+            tileFilter,
+            categoriesFilter ? &categoriesFilterById : nullptr,
+            visitor,
+            queryController);
+    }
+
+    return true;
+}
+
+bool OsmAnd::ObfDataInterface::findAmenityById(
+    const ObfObjectId id,
+    std::shared_ptr<const OsmAnd::Amenity>* const outAmenity,
+    const AreaI* const pBbox31 /*= nullptr*/,
+    const TileAcceptorFunction tileFilter /*= nullptr*/,
+    const ZoomLevel zoomFilter /*= InvalidZoomLevel*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
+{
+    std::shared_ptr<const OsmAnd::Amenity> foundAmenity;
+
+    const auto visitor =
+        [id, &foundAmenity]
+        (const std::shared_ptr<const OsmAnd::Amenity>& amenity) -> bool
+        {
+            if (amenity->id == id)
+                foundAmenity = amenity;
+
+            return false;
+        };
+
+    const auto subQueryController = std::make_shared<FunctorQueryController>(
+        [&foundAmenity]
+        (const FunctorQueryController* const queryController) -> bool
+        {
+            return static_cast<bool>(foundAmenity);
+        });
+
+    for (const auto& obfReader : constOf(obfReaders))
+    {
+        if (queryController && queryController->isAborted())
             return false;
 
         const auto& obfInfo = obfReader->obtainInfo();
         for (const auto& poiSection : constOf(obfInfo->poiSections))
         {
-            if (controller && controller->isAborted())
+            if (queryController && queryController->isAborted())
                 return false;
 
             if (pBbox31)
@@ -553,56 +704,290 @@ bool OsmAnd::ObfDataInterface::scanAmenitiesByName(
                     continue;
             }
 
-            QSet<ObfPoiCategoryId> categoriesFilterById;
-            if (categoriesFilter)
-            {
-                std::shared_ptr<const ObfPoiSectionCategories> categories;
-                OsmAnd::ObfPoiSectionReader::loadCategories(
-                    obfReader,
-                    poiSection,
-                    categories,
-                    controller);
-
-                if (!categories)
-                    continue;
-
-                for (const auto& categoriesFilterEntry : rangeOf(constOf(*categoriesFilter)))
-                {
-                    const auto mainCategoryIndex = categories->mainCategories.indexOf(categoriesFilterEntry.key());
-                    if (mainCategoryIndex < 0)
-                        continue;
-
-                    const auto& subcategories = categories->subCategories[mainCategoryIndex];
-                    if (categoriesFilterEntry.value().isEmpty())
-                    {
-                        for (auto subCategoryIndex = 0; subCategoryIndex < subcategories.size(); subCategoryIndex++)
-                            categoriesFilterById.insert(ObfPoiCategoryId::create(mainCategoryIndex, subCategoryIndex));
-                    }
-                    else
-                    {
-                        for (const auto& subcategory : constOf(categoriesFilterEntry.value()))
-                        {
-                            const auto subCategoryIndex = subcategories.indexOf(subcategory);
-                            if (subCategoryIndex < 0)
-                                continue;
-
-                            categoriesFilterById.insert(ObfPoiCategoryId::create(mainCategoryIndex, subCategoryIndex));
-                        }
-                    }
-                }
-            }
-
-            OsmAnd::ObfPoiSectionReader::scanAmenitiesByName(
+            OsmAnd::ObfPoiSectionReader::loadAmenities(
                 obfReader,
                 poiSection,
-                query,
-                outAmenities,
-                minZoom,
-                maxZoom,
+                nullptr,
                 pBbox31,
-                categoriesFilter ? &categoriesFilterById : nullptr,
+                tileFilter,
+                zoomFilter,
+                nullptr,
                 visitor,
-                controller);
+                subQueryController);
+
+            if (foundAmenity)
+            {
+                if (outAmenity)
+                    *outAmenity = foundAmenity;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool OsmAnd::ObfDataInterface::findAmenityForObfMapObject(
+    const std::shared_ptr<const OsmAnd::ObfMapObject>& obfMapObject,
+    std::shared_ptr<const OsmAnd::Amenity>* const outAmenity,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
+{
+    const auto alignMask = (1u << 7) - 1;
+    auto alignedBBox = obfMapObject->bbox31;
+    alignedBBox.top() &= ~alignMask;
+    alignedBBox.left() &= ~alignMask;
+    alignedBBox.bottom() |= alignMask;
+    alignedBBox.right() |= alignMask;
+
+    return findAmenityById(
+        obfMapObject->id,
+        outAmenity,
+        &alignedBBox,
+        nullptr,
+        InvalidZoomLevel,
+        queryController);
+}
+
+bool OsmAnd::ObfDataInterface::scanAddressesByName(
+    const QString& query,
+    QList< std::shared_ptr<const OsmAnd::Address> >* outAddresses,
+    const AreaI* const bbox31 /*= nullptr*/,
+    const ObfAddressStreetGroupTypesMask streetGroupTypesFilter /*= fullObfAddressStreetGroupTypesMask()*/,
+    const bool includeStreets /*= true*/,
+    const ObfAddressSectionReader::VisitorFunction visitor /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
+{
+    for (const auto& obfReader : constOf(obfReaders))
+    {
+        if (queryController && queryController->isAborted())
+            return false;
+
+        const auto& obfInfo = obfReader->obtainInfo();
+        for (const auto& addressSection : constOf(obfInfo->addressSections))
+        {
+            if (queryController && queryController->isAborted())
+                return false;
+
+            if (bbox31)
+            {
+                bool accept = false;
+                accept = accept || addressSection->area31.contains(*bbox31);
+                accept = accept || addressSection->area31.intersects(*bbox31);
+                accept = accept || bbox31->contains(addressSection->area31);
+
+                if (!accept)
+                    continue;
+            }
+
+            OsmAnd::ObfAddressSectionReader::scanAddressesByName(
+                obfReader,
+                addressSection,
+                query,
+                outAddresses,
+                bbox31,
+                streetGroupTypesFilter,
+                includeStreets,
+                visitor,
+                queryController);
+        }
+    }
+
+    return true;
+}
+
+bool OsmAnd::ObfDataInterface::loadStreetGroups(
+    QList< std::shared_ptr<const StreetGroup> >* resultOut /*= nullptr*/,
+    const AreaI* const bbox31 /*= nullptr*/,
+    const ObfAddressStreetGroupTypesMask streetGroupTypesFilter /*= fullObfAddressStreetGroupTypesMask()*/,
+    const ObfAddressSectionReader::StreetGroupVisitorFunction visitor /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
+{
+    for (const auto& obfReader : constOf(obfReaders))
+    {
+        if (queryController && queryController->isAborted())
+            return false;
+
+        const auto& obfInfo = obfReader->obtainInfo();
+        for (const auto& addressSection : constOf(obfInfo->addressSections))
+        {
+            if (queryController && queryController->isAborted())
+                return false;
+
+            if (bbox31)
+            {
+                bool accept = false;
+                accept = accept || addressSection->area31.contains(*bbox31);
+                accept = accept || addressSection->area31.intersects(*bbox31);
+                accept = accept || bbox31->contains(addressSection->area31);
+
+                if (!accept)
+                    continue;
+            }
+
+            OsmAnd::ObfAddressSectionReader::loadStreetGroups(
+                obfReader,
+                addressSection,
+                resultOut,
+                bbox31,
+                streetGroupTypesFilter,
+                visitor,
+                queryController);
+        }
+    }
+
+    return true;
+}
+
+bool OsmAnd::ObfDataInterface::loadStreetsFromGroups(
+    const QList< std::shared_ptr<const StreetGroup> >& streetGroups,
+    QHash< std::shared_ptr<const StreetGroup>, QList< std::shared_ptr<const Street> > >* resultOut /*= nullptr*/,
+    const AreaI* const bbox31 /*= nullptr*/,
+    const ObfAddressSectionReader::StreetVisitorFunction visitor /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
+{
+    for (const auto& obfReader : constOf(obfReaders))
+    {
+        if (queryController && queryController->isAborted())
+            return false;
+
+        const auto& obfInfo = obfReader->obtainInfo();
+        for (const auto& addressSection : constOf(obfInfo->addressSections))
+        {
+            if (queryController && queryController->isAborted())
+                return false;
+
+            if (bbox31)
+            {
+                bool accept = false;
+                accept = accept || addressSection->area31.contains(*bbox31);
+                accept = accept || addressSection->area31.intersects(*bbox31);
+                accept = accept || bbox31->contains(addressSection->area31);
+
+                if (!accept)
+                    continue;
+            }
+
+            for (const auto& streetGroup : constOf(streetGroups))
+            {
+                if (addressSection != streetGroup->obfSection)
+                    continue;
+
+                QList< std::shared_ptr<const Street> > intermediateResult;
+                OsmAnd::ObfAddressSectionReader::loadStreetsFromGroup(
+                    obfReader,
+                    streetGroup,
+                    resultOut ? &intermediateResult : nullptr,
+                    bbox31,
+                    visitor,
+                    queryController);
+
+                if (resultOut)
+                    resultOut->insert(streetGroup, intermediateResult);
+            }
+        }
+    }
+
+    return true;
+}
+
+bool OsmAnd::ObfDataInterface::loadBuildingsFromStreets(
+    const QList< std::shared_ptr<const Street> >& streets,
+    QHash< std::shared_ptr<const Street>, QList< std::shared_ptr<const Building> > >* resultOut /*= nullptr*/,
+    const AreaI* const bbox31 /*= nullptr*/,
+    const ObfAddressSectionReader::BuildingVisitorFunction visitor /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
+{
+    for (const auto& obfReader : constOf(obfReaders))
+    {
+        if (queryController && queryController->isAborted())
+            return false;
+
+        const auto& obfInfo = obfReader->obtainInfo();
+        for (const auto& addressSection : constOf(obfInfo->addressSections))
+        {
+            if (queryController && queryController->isAborted())
+                return false;
+
+            if (bbox31)
+            {
+                bool accept = false;
+                accept = accept || addressSection->area31.contains(*bbox31);
+                accept = accept || addressSection->area31.intersects(*bbox31);
+                accept = accept || bbox31->contains(addressSection->area31);
+
+                if (!accept)
+                    continue;
+            }
+
+            for (const auto& street : constOf(streets))
+            {
+                if (addressSection != street->streetGroup->obfSection)
+                    continue;
+
+                QList< std::shared_ptr<const Building> > intermediateResult;
+                OsmAnd::ObfAddressSectionReader::loadBuildingsFromStreet(
+                    obfReader,
+                    street,
+                    resultOut ? &intermediateResult : nullptr,
+                    bbox31,
+                    visitor,
+                    queryController);
+
+                if (resultOut)
+                    resultOut->insert(street, intermediateResult);
+            }
+        }
+    }
+
+    return true;
+}
+
+bool OsmAnd::ObfDataInterface::loadIntersectionsFromStreets(
+    const QList< std::shared_ptr<const Street> >& streets,
+    QHash< std::shared_ptr<const Street>, QList< std::shared_ptr<const StreetIntersection> > >* resultOut /*= nullptr*/,
+    const AreaI* const bbox31 /*= nullptr*/,
+    const ObfAddressSectionReader::IntersectionVisitorFunction visitor /*= nullptr*/,
+    const std::shared_ptr<const IQueryController>& queryController /*= nullptr*/)
+{
+    for (const auto& obfReader : constOf(obfReaders))
+    {
+        if (queryController && queryController->isAborted())
+            return false;
+
+        const auto& obfInfo = obfReader->obtainInfo();
+        for (const auto& addressSection : constOf(obfInfo->addressSections))
+        {
+            if (queryController && queryController->isAborted())
+                return false;
+
+            if (bbox31)
+            {
+                bool accept = false;
+                accept = accept || addressSection->area31.contains(*bbox31);
+                accept = accept || addressSection->area31.intersects(*bbox31);
+                accept = accept || bbox31->contains(addressSection->area31);
+
+                if (!accept)
+                    continue;
+            }
+
+            for (const auto& street : constOf(streets))
+            {
+                if (addressSection != street->streetGroup->obfSection)
+                    continue;
+
+                QList< std::shared_ptr<const StreetIntersection> > intermediateResult;
+                OsmAnd::ObfAddressSectionReader::loadIntersectionsFromStreet(
+                    obfReader,
+                    street,
+                    resultOut ? &intermediateResult : nullptr,
+                    bbox31,
+                    visitor,
+                    queryController);
+
+                if (resultOut)
+                    resultOut->insert(street, intermediateResult);
+            }
         }
     }
 

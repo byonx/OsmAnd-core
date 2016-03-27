@@ -1,7 +1,11 @@
 #include "MapMarkersCollection.h"
 #include "MapMarkersCollection_P.h"
 
-OsmAnd::MapMarkersCollection::MapMarkersCollection(const ZoomLevel minZoom_ /*= MinZoomLevel*/, const ZoomLevel maxZoom_ /*= MaxZoomLevel*/)
+#include "MapDataProviderHelpers.h"
+
+OsmAnd::MapMarkersCollection::MapMarkersCollection(
+    const ZoomLevel minZoom_ /*= MinZoomLevel*/,
+    const ZoomLevel maxZoom_ /*= MaxZoomLevel*/)
     : _p(new MapMarkersCollection_P(this))
     , minZoom(minZoom_)
     , maxZoom(maxZoom_)
@@ -42,23 +46,31 @@ QList<OsmAnd::IMapKeyedSymbolsProvider::Key> OsmAnd::MapMarkersCollection::getPr
     return _p->getProvidedDataKeys();
 }
 
+bool OsmAnd::MapMarkersCollection::supportsNaturalObtainData() const
+{
+    return true;
+}
+
 bool OsmAnd::MapMarkersCollection::obtainData(
-    const IMapKeyedDataProvider::Key key,
-    std::shared_ptr<IMapKeyedDataProvider::Data>& outKeyedData,
-    std::shared_ptr<Metric>* pOutMetric /*= nullptr*/,
-    const IQueryController* const queryController /*= nullptr*/)
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
 {
     if (pOutMetric)
         pOutMetric->reset();
 
-    std::shared_ptr<Data> keyedData;
-    const auto result = _p->obtainData(key, keyedData, queryController);
-    outKeyedData = keyedData;
-
-    return result;
+    return _p->obtainData(request, outData);
 }
 
-OsmAnd::IMapDataProvider::SourceType OsmAnd::MapMarkersCollection::getSourceType() const
+bool OsmAnd::MapMarkersCollection::supportsNaturalObtainDataAsync() const
 {
-    return IMapDataProvider::SourceType::MiscDirect;
+    return false;
+}
+
+void OsmAnd::MapMarkersCollection::obtainDataAsync(
+    const IMapDataProvider::Request& request,
+    const IMapDataProvider::ObtainDataAsyncCallback callback,
+    const bool collectMetric /*= false*/)
+{
+    MapDataProviderHelpers::nonNaturalObtainDataAsync(this, request, callback, collectMetric);
 }

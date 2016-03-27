@@ -52,15 +52,15 @@ namespace OsmAnd
             const ObfReader_P& reader,
             AreaI& outBbox31);
 
-        static void readEncodingDecodingRules(
+        static void readAttributeMapping(
             const ObfReader_P& reader,
             const std::shared_ptr<const ObfRoutingSectionInfo>& section,
-            const std::shared_ptr<ObfRoutingSectionEncodingDecodingRules>& encodingDecodingRules);
+            const std::shared_ptr<ObfRoutingSectionAttributeMapping>& attributeMapping);
 
-        static void readEncodingDecodingRule(
+        static void readAttributeMappingEntry(
             const ObfReader_P& reader,
-            const std::shared_ptr<ObfRoutingSectionEncodingDecodingRules>& encodingDecodingRules,
-            const uint32_t defaultId);
+            const uint32_t naturalId,
+            const std::shared_ptr<ObfRoutingSectionAttributeMapping>& attributeMapping);
 
         static void readLevelTreeNodes(
             const ObfReader_P& reader,
@@ -78,7 +78,7 @@ namespace OsmAnd
             const std::shared_ptr<const ObfRoutingSectionLevelTreeNode>& treeNode,
             QList< std::shared_ptr<const ObfRoutingSectionLevelTreeNode> >* outNodesWithData,
             const AreaI* bbox31,
-            const IQueryController* const controller,
+            const std::shared_ptr<const IQueryController>& queryController,
             ObfRoutingSectionReader_Metrics::Metric_loadRoads* const metric);
 
         static void readRoadsBlock(
@@ -89,7 +89,7 @@ namespace OsmAnd
             const AreaI* bbox31,
             const FilterRoadsByIdFunction filterById,
             const VisitorFunction visitor,
-            const IQueryController* const controller,
+            const std::shared_ptr<const IQueryController>& queryController,
             ObfRoutingSectionReader_Metrics::Metric_loadRoads* const metric);
 
         static void readRoadsBlockIdsTable(
@@ -123,7 +123,7 @@ namespace OsmAnd
             const VisitorFunction visitor,
             DataBlocksCache* cache,
             QList< std::shared_ptr<const DataBlock> >* outReferencedCacheEntries,
-            const IQueryController* const controller,
+            const std::shared_ptr<const IQueryController>& queryController,
             ObfRoutingSectionReader_Metrics::Metric_loadRoads* const metric);
 
     friend class OsmAnd::ObfRoutingSectionReader;

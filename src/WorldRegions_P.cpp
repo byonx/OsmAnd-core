@@ -3,6 +3,7 @@
 
 #include <QFile>
 
+#include "WorldRegion.h"
 #include "ObfReader.h"
 #include "ObfMapSectionInfo.h"
 #include "ObfMapSectionReader.h"
@@ -20,8 +21,11 @@ OsmAnd::WorldRegions_P::~WorldRegions_P()
 }
 
 bool OsmAnd::WorldRegions_P::loadWorldRegions(
-    QHash< QString, std::shared_ptr<const WorldRegion> >& outRegions,
-    const IQueryController* const controller) const
+    QList< std::shared_ptr<const WorldRegion> >* const outRegions,
+    const bool keepMapObjects,
+    const AreaI* const bbox31,
+    const VisitorFunction visitor,
+    const std::shared_ptr<const IQueryController>& queryController) const
 {
     const std::shared_ptr<QIODevice> ocbfFile(new QFile(owner->ocbfFileName));
     if (!ocbfFile->open(QIODevice::ReadOnly))
@@ -38,104 +42,91 @@ bool OsmAnd::WorldRegions_P::loadWorldRegions(
 
     for(const auto& mapSection : constOf(obfInfo->mapSections))
     {
-        // Check if request is aborted
-        if (controller && controller->isAborted())
-        {
-            ocbfFile->close();
+        if (queryController && queryController->isAborted())
+            break;
 
-            return false;
-        }
+        auto keyNameAttributeId = std::numeric_limits<uint32_t>::max();
+        auto downloadNameAttributeId = std::numeric_limits<uint32_t>::max();
+        auto regionFullNameAttributeId = std::numeric_limits<uint32_t>::max();
+        auto regionParentNameAttributeId = std::numeric_limits<uint32_t>::max();
+        auto osmandRegionId = std::numeric_limits<uint32_t>::max();
 
-        bool idsCaptured = false;
-        uint32_t nameId = std::numeric_limits<uint32_t>::max();
-        uint32_t idId = std::numeric_limits<uint32_t>::max();
-        uint32_t downloadNameId = std::numeric_limits<uint32_t>::max();
-        uint32_t regionPrefixId = std::numeric_limits<uint32_t>::max();
-        uint32_t regionSuffixId = std::numeric_limits<uint32_t>::max();
-        const QLatin1String localizedNameTagPrefix("name:");
-        const auto localizedNameTagPrefixLen = localizedNameTagPrefix.size();
+        bool attributesLocated = false;
         const auto worldRegionsCollector =
-            [&outRegions, &idsCaptured, &nameId, &idId, &downloadNameId, &regionPrefixId, &regionSuffixId, localizedNameTagPrefix, localizedNameTagPrefixLen]
-            (const std::shared_ptr<const OsmAnd::BinaryMapObject>& worldRegionMapObject) -> bool
+            [outRegions,
+                keepMapObjects,
+                visitor,
+                &attributesLocated,
+                &keyNameAttributeId,
+                &downloadNameAttributeId,
+                &regionFullNameAttributeId,
+                &osmandRegionId,
+                &regionParentNameAttributeId]
+            (const std::shared_ptr<const OsmAnd::BinaryMapObject>& mapObject) -> bool
             {
-                const auto& rules = worldRegionMapObject->encodingDecodingRules;
-                if (!idsCaptured)
+                if (!attributesLocated)
                 {
-                    nameId = rules->name_encodingRuleId;
+                    const QString keyNameAttribute(QLatin1String("key_name"));
+                    const QString downloadNameAttribute(QLatin1String("download_name"));
+                    const QString regionFullNameAttribute(QLatin1String("region_full_name"));
+                    const QString regionParentNameAttribute(QLatin1String("region_parent_name"));
+                    const QString osmandRegionAttribute(QLatin1String("osmand_region"));
 
-                    QHash< QString, QHash<QString, uint32_t> >::const_iterator citRule;
-                    if ((citRule = rules->encodingRuleIds.constFind(QLatin1String("key_name"))) != rules->encodingRuleIds.cend())
-                        idId = citRule->constBegin().value();
-                    if ((citRule = rules->encodingRuleIds.constFind(QLatin1String("download_name"))) != rules->encodingRuleIds.cend())
-                        downloadNameId = citRule->constBegin().value();
-                    if ((citRule = rules->encodingRuleIds.constFind(QLatin1String("region_prefix"))) != rules->encodingRuleIds.cend())
-                        regionPrefixId = citRule->constBegin().value();
-                    if ((citRule = rules->encodingRuleIds.constFind(QLatin1String("region_suffix"))) != rules->encodingRuleIds.cend())
-                        regionSuffixId = citRule->constBegin().value();
+                    const auto& encodeMap = mapObject->attributeMapping->encodeMap;
+                    auto citAttributes = encodeMap.cend();
 
-                    idsCaptured = true;
+                    if ((citAttributes = encodeMap.constFind(&keyNameAttribute)) != encodeMap.cend())
+                        keyNameAttributeId = citAttributes->constBegin().value();
+
+                    if ((citAttributes = encodeMap.constFind(&downloadNameAttribute)) != encodeMap.cend())
+                        downloadNameAttributeId = citAttributes->constBegin().value();
+
+                    if ((citAttributes = encodeMap.constFind(&regionFullNameAttribute)) != encodeMap.cend())
+                        regionFullNameAttributeId = citAttributes->constBegin().value();
+
+                    if ((citAttributes = encodeMap.constFind(&regionParentNameAttribute)) != encodeMap.cend())
+                        regionParentNameAttributeId = citAttributes->constBegin().value();
+                    
+                    if ((citAttributes = encodeMap.constFind(&osmandRegionAttribute)) != encodeMap.cend())
+                        osmandRegionId = citAttributes->constBegin().value();
+
+                    attributesLocated = true;
                 }
 
-                QString name;
-                QString id;
-                QString downloadName;
-                QString regionPrefix;
-                QString regionSuffix;
-                QHash<QString, QString> localizedNames;
-                for(const auto& captionEntry : rangeOf(constOf(worldRegionMapObject->captions)))
+                auto worldRegion = std::make_shared<WorldRegion>();
+                worldRegion->boundary = mapObject->containsAttribute("osmand_region", "boundary");
+                for (const auto& captionEntry : rangeOf(constOf(mapObject->captions)))
                 {
-                    const auto ruleId = captionEntry.key();
-                    if (ruleId == idId)
-                    {
-                        id = captionEntry.value().toLower();
-                        continue;
-                    }
-                    else if (ruleId == nameId)
-                    {
-                        name = captionEntry.value();
-                        continue;
-                    }
-                    else if (ruleId == downloadNameId)
-                    {
-                        downloadName = captionEntry.value().toLower();
-                        continue;
-                    }
-                    else if (ruleId == regionPrefixId)
-                    {
-                        regionPrefix = captionEntry.value().toLower();
-                        continue;
-                    }
-                    else if (ruleId == regionSuffixId)
-                    {
-                        regionSuffix = captionEntry.value().toLower();
-                        continue;
-                    }
+                    const auto& attributeId = captionEntry.key();
+                    const auto& value = captionEntry.value();
 
-                    const auto& nameTag = rules->decodingRules[captionEntry.key()].tag;
-                    if (!nameTag.startsWith(localizedNameTagPrefix))
-                        continue;
-                    const auto languageId = nameTag.mid(localizedNameTagPrefixLen).toLower();
-                    localizedNames.insert(languageId, captionEntry.value());
+                    if (attributeId == keyNameAttributeId)
+                    {
+                        worldRegion->regionName = value;
+                    }
+                    else if (attributeId == downloadNameAttributeId)
+                    {
+                        worldRegion->downloadName = value;
+                    }
+                    else if (attributeId == regionFullNameAttributeId)
+                    {
+                        worldRegion->fullRegionName = value;
+                    }
+                    else if (attributeId == regionParentNameAttributeId)
+                    {
+                        worldRegion->parentRegionName = value;
+                    }
                 }
+                worldRegion->nativeName = mapObject->getCaptionInNativeLanguage();
+                worldRegion->localizedNames = mapObject->getCaptionsInAllLanguages();
+                if (keepMapObjects)
+                    worldRegion->mapObject = mapObject;
 
-                QString parentId = regionSuffix;
-                if (!regionPrefix.isEmpty())
+                if (!visitor || visitor(worldRegion))
                 {
-                    if (!parentId.isEmpty())
-                        parentId.prepend(regionPrefix + QLatin1String("_"));
-                    else
-                        parentId = regionPrefix;
+                    if (outRegions)
+                        outRegions->push_back(qMove(worldRegion));
                 }
-
-                // Build up full id
-                if (!regionPrefix.isEmpty())
-                    id.prepend(regionPrefix + QLatin1String("_"));
-                if (!regionSuffix.isEmpty())
-                    id.append(QLatin1String("_") + regionSuffix);
-
-                std::shared_ptr<const WorldRegion> newRegion(new WorldRegion(id, downloadName, name, localizedNames, parentId));
-
-                outRegions.insert(id, qMove(newRegion));
 
                 return false;
             };
@@ -145,16 +136,19 @@ bool OsmAnd::WorldRegions_P::loadWorldRegions(
             ocbfReader,
             mapSection,
             mapSection->levels.first()->minZoom,
-            nullptr, // Query entire world
+            bbox31, // Query entire world
             nullptr, // No need for map objects to be stored
             nullptr, // Surface type is not needed
             nullptr, // No filtering by ID
             worldRegionsCollector,
             nullptr, // No cache
             nullptr, // No cache
-            controller);
+            queryController);
     }
 
     ocbfFile->close();
+
+    if (queryController && queryController->isAborted())
+        return false;
     return true;
 }

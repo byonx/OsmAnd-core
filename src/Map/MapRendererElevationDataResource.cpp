@@ -5,11 +5,10 @@
 
 OsmAnd::MapRendererElevationDataResource::MapRendererElevationDataResource(
     MapRendererResourcesManager* owner_,
-    const IMapDataProvider::SourceType sourceType_,
     const TiledEntriesCollection<MapRendererBaseTiledResource>& collection_,
     const TileId tileId_,
     const ZoomLevel zoom_)
-    : MapRendererBaseTiledResource(owner_, MapRendererResourceType::ElevationData, sourceType_, collection_, tileId_, zoom_)
+    : MapRendererBaseTiledResource(owner_, MapRendererResourceType::ElevationData, collection_, tileId_, zoom_)
     , resourceInGPU(_resourceInGPU)
 {
 }
@@ -19,7 +18,26 @@ OsmAnd::MapRendererElevationDataResource::~MapRendererElevationDataResource()
     safeUnlink();
 }
 
-bool OsmAnd::MapRendererElevationDataResource::obtainData(bool& dataAvailable, const IQueryController* queryController)
+bool OsmAnd::MapRendererElevationDataResource::supportsObtainDataAsync() const
+{
+    bool ok = false;
+
+    std::shared_ptr<IMapDataProvider> provider;
+    if (const auto link_ = link.lock())
+    {
+        ok = resourcesManager->obtainProviderFor(
+            static_cast<MapRendererBaseResourcesCollection*>(static_cast<MapRendererTiledResourcesCollection*>(&link_->collection)),
+            provider);
+    }
+    if (!ok)
+        return false;
+
+    return provider->supportsNaturalObtainDataAsync();
+}
+
+bool OsmAnd::MapRendererElevationDataResource::obtainData(
+    bool& dataAvailable,
+    const std::shared_ptr<const IQueryController>& queryController)
 {
     bool ok = false;
 
@@ -37,7 +55,11 @@ bool OsmAnd::MapRendererElevationDataResource::obtainData(bool& dataAvailable, c
 
     // Obtain tile from provider
     std::shared_ptr<IMapTiledDataProvider::Data> tile;
-    const auto requestSucceeded = provider->obtainData(tileId, zoom, tile, nullptr, queryController);
+    IMapElevationDataProvider::Request request;
+    request.tileId = tileId;
+    request.zoom = zoom;
+    request.queryController = queryController;
+    const auto requestSucceeded = provider->obtainTiledData(request, tile);
     if (!requestSucceeded)
         return false;
     dataAvailable = static_cast<bool>(tile);
@@ -47,6 +69,48 @@ bool OsmAnd::MapRendererElevationDataResource::obtainData(bool& dataAvailable, c
         _sourceData = std::static_pointer_cast<IMapElevationDataProvider::Data>(tile);
 
     return true;
+}
+
+void OsmAnd::MapRendererElevationDataResource::obtainDataAsync(
+    const ObtainDataAsyncCallback callback,
+    const std::shared_ptr<const IQueryController>& queryController)
+{
+    bool ok = false;
+
+    // Get source of tile
+    std::shared_ptr<IMapDataProvider> provider_;
+    if (const auto link_ = link.lock())
+    {
+        ok = resourcesManager->obtainProviderFor(
+            static_cast<MapRendererBaseResourcesCollection*>(static_cast<MapRendererTiledResourcesCollection*>(&link_->collection)),
+            provider_);
+    }
+    if (!ok)
+    {
+        callback(false, false);
+        return;
+    }
+    const auto provider = std::static_pointer_cast<IMapTiledDataProvider>(provider_);
+
+    IMapElevationDataProvider::Request request;
+    request.tileId = tileId;
+    request.zoom = zoom;
+    request.queryController = queryController;
+    provider->obtainDataAsync(request,
+        [this, callback]
+        (const IMapDataProvider* const provider,
+            const bool requestSucceeded,
+            const std::shared_ptr<IMapDataProvider::Data>& data,
+            const std::shared_ptr<Metric>& metric)
+        {
+            const auto dataAvailable = static_cast<bool>(data);
+
+            // Store data
+            if (dataAvailable)
+                _sourceData = std::static_pointer_cast<IMapElevationDataProvider::Data>(data);
+
+            callback(requestSucceeded, dataAvailable);
+        });
 }
 
 bool OsmAnd::MapRendererElevationDataResource::uploadToGPU()

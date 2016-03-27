@@ -9,6 +9,7 @@
 
 #include <OsmAndCore.h>
 #include <OsmAndCore/CommonTypes.h>
+#include <OsmAndCore/CommonSWIG.h>
 #include <OsmAndCore/Callable.h>
 #include <OsmAndCore/Map/MapSymbol.h>
 #include <OsmAndCore/Map/MapSymbolsGroup.h>
@@ -23,13 +24,15 @@ namespace OsmAnd
         Q_DISABLE_COPY_AND_MOVE(IMapTiledSymbolsProvider);
 
     public:
-#if !defined(SWIG)
-        //NOTE: For some reason, produces 'SWIGTYPE_p_std__shared_ptrT_OsmAnd__MapSymbolsGroup_const_t'
-        OSMAND_CALLABLE(FilterCallback,
-            bool,
+        //NOTE: 'SWIGTYPE_p_std__shared_ptrT_OsmAnd__MapSymbolsGroup_const_t' is produced
+        // due to director+shared_ptr is not supported in SWIG
+        //OSMAND_CALLABLE(FilterCallback,
+        //    bool,
+        //    const IMapTiledSymbolsProvider* const provider,
+        //    const std::shared_ptr<const MapSymbolsGroup>& symbolsGroup);
+        typedef std::function< bool(
             const IMapTiledSymbolsProvider* const provider,
-            const std::shared_ptr<const MapSymbolsGroup>& symbolsGroup);
-#endif // !defined(SWIG)
+            const std::shared_ptr<const MapSymbolsGroup>& symbolsGroup)> FilterCallback;
 
         class OSMAND_CORE_API Data : public IMapTiledDataProvider::Data
         {
@@ -47,28 +50,31 @@ namespace OsmAnd
             QList< std::shared_ptr<MapSymbolsGroup> > symbolsGroups;
         };
 
+        struct OSMAND_CORE_API Request : public IMapTiledDataProvider::Request
+        {
+            Request();
+            Request(const IMapDataProvider::Request& that);
+            virtual ~Request();
+
+            FilterCallback filterCallback;
+
+            static void copy(Request& dst, const IMapDataProvider::Request& src);
+            virtual std::shared_ptr<IMapDataProvider::Request> clone() const Q_DECL_OVERRIDE;
+
+        protected:
+            Request(const Request& that);
+        };
+
     private:
     protected:
         IMapTiledSymbolsProvider();
     public:
         virtual ~IMapTiledSymbolsProvider();
 
-        virtual bool obtainData(
-            const TileId tileId,
-            const ZoomLevel zoom,
-            std::shared_ptr<IMapTiledDataProvider::Data>& outTiledData,
-            std::shared_ptr<Metric>* pOutMetric = nullptr,
-            const IQueryController* const queryController = nullptr);
-
-# if !defined(SWIG)
-        virtual bool obtainData(
-            const TileId tileId,
-            const ZoomLevel zoom,
-            std::shared_ptr<Data>& outTiledData,
-            std::shared_ptr<Metric>* pOutMetric = nullptr,
-            const IQueryController* const queryController = nullptr,
-            const FilterCallback filterCallback = nullptr) = 0;
-#endif // !defined(SWIG)
+        virtual bool obtainTiledSymbols(
+            const Request& request,
+            std::shared_ptr<Data>& outTiledSymbols,
+            std::shared_ptr<Metric>* const pOutMetric = nullptr);
     };
 }
 

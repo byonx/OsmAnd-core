@@ -1,6 +1,8 @@
 #include "ObfMapObjectsMetricsLayerProvider.h"
 #include "ObfMapObjectsMetricsLayerProvider_P.h"
 
+#include "MapDataProviderHelpers.h"
+
 OsmAnd::ObfMapObjectsMetricsLayerProvider::ObfMapObjectsMetricsLayerProvider(
     const std::shared_ptr<ObfMapObjectsProvider>& dataProvider_,
     const uint32_t tileSize_ /*= 256*/,
@@ -31,21 +33,38 @@ uint32_t OsmAnd::ObfMapObjectsMetricsLayerProvider::getTileSize() const
     return tileSize;
 }
 
-bool OsmAnd::ObfMapObjectsMetricsLayerProvider::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<IMapTiledDataProvider::Data>& outTiledData,
-    std::shared_ptr<Metric>* pOutMetric /*= nullptr*/,
-    const IQueryController* const queryController /*= nullptr*/)
+bool OsmAnd::ObfMapObjectsMetricsLayerProvider::supportsNaturalObtainData() const
 {
-    if (pOutMetric)
-        pOutMetric->reset();
+    return true;
+}
 
-    std::shared_ptr<Data> tiledData;
-    const auto result = _p->obtainData(tileId, zoom, tiledData, queryController);
-    outTiledData = tiledData;
+bool OsmAnd::ObfMapObjectsMetricsLayerProvider::obtainData(
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
+{
+    return _p->obtainData(request, outData, pOutMetric);
+}
 
-    return result;
+bool OsmAnd::ObfMapObjectsMetricsLayerProvider::supportsNaturalObtainDataAsync() const
+{
+    return false;
+}
+
+void OsmAnd::ObfMapObjectsMetricsLayerProvider::obtainDataAsync(
+    const IMapDataProvider::Request& request,
+    const IMapDataProvider::ObtainDataAsyncCallback callback,
+    const bool collectMetric /*= false*/)
+{
+    MapDataProviderHelpers::nonNaturalObtainDataAsync(this, request, callback, collectMetric);
+}
+
+bool OsmAnd::ObfMapObjectsMetricsLayerProvider::obtainMetricsTile(
+    const Request& request,
+    std::shared_ptr<Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
+{
+    return MapDataProviderHelpers::obtainData(this, request, outData, pOutMetric);
 }
 
 OsmAnd::ZoomLevel OsmAnd::ObfMapObjectsMetricsLayerProvider::getMinZoom() const
@@ -56,27 +75,6 @@ OsmAnd::ZoomLevel OsmAnd::ObfMapObjectsMetricsLayerProvider::getMinZoom() const
 OsmAnd::ZoomLevel OsmAnd::ObfMapObjectsMetricsLayerProvider::getMaxZoom() const
 {
     return _p->getMaxZoom();
-}
-
-OsmAnd::IMapDataProvider::SourceType OsmAnd::ObfMapObjectsMetricsLayerProvider::getSourceType() const
-{
-    const auto underlyingSourceType = dataProvider->getSourceType();
-
-    switch (underlyingSourceType)
-    {
-        case IMapDataProvider::SourceType::LocalDirect:
-        case IMapDataProvider::SourceType::LocalGenerated:
-            return IMapDataProvider::SourceType::LocalGenerated;
-
-        case IMapDataProvider::SourceType::NetworkDirect:
-        case IMapDataProvider::SourceType::NetworkGenerated:
-            return IMapDataProvider::SourceType::NetworkGenerated;
-
-        case IMapDataProvider::SourceType::MiscDirect:
-        case IMapDataProvider::SourceType::MiscGenerated:
-        default:
-            return IMapDataProvider::SourceType::MiscGenerated;
-    }
 }
 
 OsmAnd::ObfMapObjectsMetricsLayerProvider::Data::Data(

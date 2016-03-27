@@ -2,6 +2,7 @@
 #include "FavoriteLocationsPresenter_P.h"
 
 #include "CoreResourcesEmbeddedBundle.h"
+#include "MapDataProviderHelpers.h"
 
 OsmAnd::FavoriteLocationsPresenter::FavoriteLocationsPresenter(
     const std::shared_ptr<const IFavoriteLocationsCollection>& collection_,
@@ -39,19 +40,31 @@ QList<OsmAnd::IMapKeyedSymbolsProvider::Key> OsmAnd::FavoriteLocationsPresenter:
     return _p->getProvidedDataKeys();
 }
 
+bool OsmAnd::FavoriteLocationsPresenter::supportsNaturalObtainData() const
+{
+    return true;
+}
+
 bool OsmAnd::FavoriteLocationsPresenter::obtainData(
-    const IMapKeyedDataProvider::Key key,
-    std::shared_ptr<IMapKeyedDataProvider::Data>& outKeyedData,
-    std::shared_ptr<Metric>* pOutMetric /*= nullptr*/,
-    const IQueryController* const queryController /*= nullptr*/)
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
 {
     if (pOutMetric)
         pOutMetric->reset();
 
-    return _p->obtainData(key, outKeyedData, queryController);
+    return _p->obtainData(request, outData, pOutMetric);
 }
 
-OsmAnd::IMapDataProvider::SourceType OsmAnd::FavoriteLocationsPresenter::getSourceType() const
+bool OsmAnd::FavoriteLocationsPresenter::supportsNaturalObtainDataAsync() const
 {
-    return IMapDataProvider::SourceType::MiscDirect;
+    return false;
+}
+
+void OsmAnd::FavoriteLocationsPresenter::obtainDataAsync(
+    const IMapDataProvider::Request& request,
+    const IMapDataProvider::ObtainDataAsyncCallback callback,
+    const bool collectMetric /*= false*/)
+{
+    MapDataProviderHelpers::nonNaturalObtainDataAsync(this, request, callback, collectMetric);
 }

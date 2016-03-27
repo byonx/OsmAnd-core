@@ -204,7 +204,7 @@ std::shared_ptr<OsmAnd::ResolvedMapStyle_P::RuleNode> OsmAnd::ResolvedMapStyle_P
 
         // Find value definition id and object
         const auto valueDefId = getValueDefinitionIdByName(name);
-        const auto valueDef = getValueDefinitionById(valueDefId);
+        const auto& valueDef = getValueDefinitionById(valueDefId);
         if (valueDefId < 0 || !valueDef)
         {
             LogPrintf(LogSeverityLevel::Warning,
@@ -287,20 +287,22 @@ bool OsmAnd::ResolvedMapStyle_P::mergeAndResolveParameters()
             }
 
             // Create new resolved parameter
-            resolvedParameter.reset(new Parameter(
+            const std::shared_ptr<Parameter> newResolvedParameter(new Parameter(
                 unresolvedParameter->title,
                 unresolvedParameter->description,
                 unresolvedParameter->category,
                 nameId,
                 unresolvedParameter->dataType,
-                resolvedPossibleValues));
+                resolvedPossibleValues,
+                unresolvedParameter->defaultValueDescription));
+            resolvedParameter = newResolvedParameter;
 
             // Register parameter as value definition
             const auto newValueDefId = _valuesDefinitions.size();
             const std::shared_ptr<ParameterValueDefinition> inputValueDefinition(new ParameterValueDefinition(
                 newValueDefId,
                 unresolvedParameter->name,
-                resolvedParameter));
+                newResolvedParameter));
             _valuesDefinitions.push_back(inputValueDefinition);
             _valuesDefinitionsIndicesByName.insert(unresolvedParameter->name, newValueDefId);
         }
@@ -333,7 +335,7 @@ bool OsmAnd::ResolvedMapStyle_P::mergeAndResolveAttributes()
         }
     }
 
-    _attributes = copyAs< StringId, std::shared_ptr<const Attribute> >(attributes);
+    _attributes = copyAs< StringId, std::shared_ptr<const IMapStyle::IAttribute> >(attributes);
 
     return true;
 }
@@ -344,7 +346,7 @@ bool OsmAnd::ResolvedMapStyle_P::mergeAndResolveRulesets()
 
     for (auto rulesetTypeIdx = 0u; rulesetTypeIdx < MapStyleRulesetTypesCount; rulesetTypeIdx++)
     {
-        QHash<TagValueId, std::shared_ptr<Rule> > ruleset;
+        QHash<TagValueId, std::shared_ptr<const Rule> > ruleset;
 
         // Process styles chain in direct order. This will allow to process overriding correctly
         auto citUnresolvedMapStyle = iteratorOf(owner->unresolvedMapStylesChain);
@@ -398,7 +400,7 @@ bool OsmAnd::ResolvedMapStyle_P::mergeAndResolveRulesets()
                 }
             }
 
-            _rulesets[rulesetTypeIdx] = copyAs< TagValueId, std::shared_ptr<const Rule> >(ruleset);
+            _rulesets[rulesetTypeIdx] = copyAs< TagValueId, std::shared_ptr<const IMapStyle::IRule> >(ruleset);
         }
     }
 
@@ -443,6 +445,22 @@ std::shared_ptr<const OsmAnd::MapStyleValueDefinition> OsmAnd::ResolvedMapStyle_
     return _valuesDefinitions[id];
 }
 
+const std::shared_ptr<const OsmAnd::MapStyleValueDefinition>& OsmAnd::ResolvedMapStyle_P::getValueDefinitionRefById(
+    const ValueDefinitionId id) const
+{
+    return _valuesDefinitions[id];
+}
+
+QList< std::shared_ptr<const OsmAnd::MapStyleValueDefinition> > OsmAnd::ResolvedMapStyle_P::getValueDefinitions() const
+{
+    return _valuesDefinitions;
+}
+
+int OsmAnd::ResolvedMapStyle_P::getValueDefinitionsCount() const
+{
+    return _valuesDefinitions.size();
+}
+
 bool OsmAnd::ResolvedMapStyle_P::parseConstantValue(
     const QString& input,
     const ValueDefinitionId valueDefintionId,
@@ -461,7 +479,21 @@ bool OsmAnd::ResolvedMapStyle_P::parseConstantValue(
     return parseConstantValue(input, valueDefintion->dataType, valueDefintion->isComplex, outParsedValue);
 }
 
-std::shared_ptr<const OsmAnd::ResolvedMapStyle_P::Attribute> OsmAnd::ResolvedMapStyle_P::getAttribute(const QString& name) const
+std::shared_ptr<const OsmAnd::IMapStyle::IParameter> OsmAnd::ResolvedMapStyle_P::getParameter(const QString& name) const
+{
+    StringId nameId;
+    if (!resolveStringIdInLUT(name, nameId))
+        return nullptr;
+
+    return _parameters[nameId];
+}
+
+QList< std::shared_ptr<const OsmAnd::IMapStyle::IParameter> > OsmAnd::ResolvedMapStyle_P::getParameters() const
+{
+    return _parameters.values();
+}
+
+std::shared_ptr<const OsmAnd::IMapStyle::IAttribute> OsmAnd::ResolvedMapStyle_P::getAttribute(const QString& name) const
 {
     StringId nameId;
     if (!resolveStringIdInLUT(name, nameId))
@@ -470,9 +502,13 @@ std::shared_ptr<const OsmAnd::ResolvedMapStyle_P::Attribute> OsmAnd::ResolvedMap
     return _attributes[nameId];
 }
 
-const QHash< OsmAnd::TagValueId, std::shared_ptr<const OsmAnd::ResolvedMapStyle_P::Rule> >
-OsmAnd::ResolvedMapStyle_P::getRuleset(
-const MapStyleRulesetType rulesetType) const
+QList< std::shared_ptr<const OsmAnd::IMapStyle::IAttribute> > OsmAnd::ResolvedMapStyle_P::getAttributes() const
+{
+    return _attributes.values();
+}
+
+QHash< OsmAnd::TagValueId, std::shared_ptr<const OsmAnd::IMapStyle::IRule> > OsmAnd::ResolvedMapStyle_P::getRuleset(
+    const MapStyleRulesetType rulesetType) const
 {
     return _rulesets[static_cast<unsigned int>(rulesetType)];
 }
@@ -482,344 +518,4 @@ QString OsmAnd::ResolvedMapStyle_P::getStringById(const StringId id) const
     if (id >= _stringsForwardLUT.size())
         return QString::null;
     return _stringsForwardLUT[id];
-}
-
-QString OsmAnd::ResolvedMapStyle_P::dump(const QString& prefix) const
-{
-    QString dump;
-
-    const auto decodeMapValueDataType =
-        []
-        (const MapStyleValueDataType dataType) -> QString
-        {
-            switch (dataType)
-            {
-                case MapStyleValueDataType::Boolean:
-                    return QLatin1String("boolean");
-                case MapStyleValueDataType::Integer:
-                    return QLatin1String("integer");
-                case MapStyleValueDataType::Float:
-                    return QLatin1String("float");
-                case MapStyleValueDataType::String:
-                    return QLatin1String("string");
-                case MapStyleValueDataType::Color:
-                    return QLatin1String("color");
-            }
-
-            return QLatin1String("unknown");
-        };
-
-    // Constants
-    dump += prefix + QLatin1String("// Constants:\n");
-    for (const auto& constant : rangeOf(constOf(_constants)))
-        dump += prefix + QString(QLatin1String("def %1 = \"%2\";\n")).arg(constant.key()).arg(constant.value());
-    dump += prefix + QLatin1String("\n");
-
-    // Parameters
-    dump += prefix + QLatin1String("// Parameters:\n");
-    for (const auto& parameter : constOf(_parameters))
-    {
-        if (parameter->possibleValues.isEmpty())
-        {
-            dump += prefix + QString(QLatin1String("param %1 %2; // %3 (%4) \n"))
-                .arg(decodeMapValueDataType(parameter->dataType))
-                .arg(getStringById(parameter->nameId))
-                .arg(parameter->title)
-                .arg(parameter->description);
-        }
-        else
-        {
-            QStringList decodedPossibleValues;
-            for (const auto possibleValue : constOf(parameter->possibleValues))
-                decodedPossibleValues.append(dumpConstantValue(possibleValue, parameter->dataType));
-
-            dump += prefix + QString(QLatin1String("param %1 %2 = (%3); // %4 (%5) \n"))
-                .arg(decodeMapValueDataType(parameter->dataType))
-                .arg(getStringById(parameter->nameId))
-                .arg(decodedPossibleValues.join(QLatin1String(" | ")))
-                .arg(parameter->title)
-                .arg(parameter->description);
-        }
-    }
-    dump += prefix + QLatin1String("\n");
-
-    // Attributes
-    dump += prefix + QLatin1String("// Attributes:\n");
-    for (const auto& attribute : constOf(_attributes))
-    {
-        dump += prefix + QString(QLatin1String("attribute %1:\n")).arg(getStringById(attribute->nameId));
-        dump += dumpRuleNode(attribute->rootNode, false, prefix + QLatin1String("\t"));
-    }
-    dump += prefix + QLatin1String("\n");
-
-    // Order rules
-    dump += prefix + QLatin1String("// Order rules:\n");
-    for (const auto& ruleEntry : rangeOf(constOf(_rulesets[static_cast<unsigned int>(MapStyleRulesetType::Order)])))
-    {
-        dump += prefix + QString(QLatin1String("order %1 = %2:\n"))
-            .arg(getStringById(ruleEntry.key().tagId))
-            .arg(getStringById(ruleEntry.key().valueId));
-        dump += dumpRuleNode(ruleEntry.value()->rootNode, true, prefix + QLatin1String("\t"));
-    }
-    dump += prefix + QLatin1String("\n");
-
-    // Point rules
-    dump += prefix + QLatin1String("// Point rules:\n");
-    for (const auto& ruleEntry : rangeOf(constOf(_rulesets[static_cast<unsigned int>(MapStyleRulesetType::Point)])))
-    {
-        dump += prefix + QString(QLatin1String("point %1 = %2:\n"))
-            .arg(getStringById(ruleEntry.key().tagId))
-            .arg(getStringById(ruleEntry.key().valueId));
-        dump += dumpRuleNode(ruleEntry.value()->rootNode, true, prefix + QLatin1String("\t"));
-    }
-    dump += prefix + QLatin1String("\n");
-
-    // Polyline rules
-    dump += prefix + QLatin1String("// Polyline rules:\n");
-    for (const auto& ruleEntry : rangeOf(constOf(_rulesets[static_cast<unsigned int>(MapStyleRulesetType::Polyline)])))
-    {
-        dump += prefix + QString(QLatin1String("polyline %1 = %2:\n"))
-            .arg(getStringById(ruleEntry.key().tagId))
-            .arg(getStringById(ruleEntry.key().valueId));
-        dump += dumpRuleNode(ruleEntry.value()->rootNode, true, prefix + QLatin1String("\t"));
-    }
-    dump += prefix + QLatin1String("\n");
-
-    // Polygon rules
-    dump += prefix + QLatin1String("// Polygon rules:\n");
-    for (const auto& ruleEntry : rangeOf(constOf(_rulesets[static_cast<unsigned int>(MapStyleRulesetType::Polygon)])))
-    {
-        dump += prefix + QString(QLatin1String("polygon %1 = %2:\n"))
-            .arg(getStringById(ruleEntry.key().tagId))
-            .arg(getStringById(ruleEntry.key().valueId));
-        dump += dumpRuleNode(ruleEntry.value()->rootNode, true, prefix + QLatin1String("\t"));
-    }
-    dump += prefix + QLatin1String("\n");
-
-    // Text rules
-    dump += prefix + QLatin1String("// Text rules:\n");
-    for (const auto& ruleEntry : rangeOf(constOf(_rulesets[static_cast<unsigned int>(MapStyleRulesetType::Text)])))
-    {
-        dump += prefix + QString(QLatin1String("text %1 = %2:\n"))
-            .arg(getStringById(ruleEntry.key().tagId))
-            .arg(getStringById(ruleEntry.key().valueId));
-        dump += dumpRuleNode(ruleEntry.value()->rootNode, true, prefix + QLatin1String("\t"));
-    }
-    dump += prefix + QLatin1String("\n");
-
-    return dump;
-}
-
-QString OsmAnd::ResolvedMapStyle_P::dumpRuleNode(
-    const std::shared_ptr<const RuleNode>& ruleNode,
-    const bool rejectSupported,
-    const QString& prefix) const
-{
-    QString dump;
-    const auto builtinValueDefs = MapStyleBuiltinValueDefinitions::get();
-
-    bool hasInputValueTests = false;
-    bool hasDisable = false;
-    for (const auto& ruleValueEntry : rangeOf(constOf(ruleNode->values)))
-    {
-        const auto valueDefId = ruleValueEntry.key();
-        const auto& valueDef = getValueDefinitionById(valueDefId);
-
-        if (valueDef->valueClass == MapStyleValueDefinition::Class::Input)
-            hasInputValueTests = true;
-        else if (valueDef->valueClass == MapStyleValueDefinition::Class::Output && valueDef->name == QLatin1String("disable"))
-            hasDisable = true;
-
-        if (hasInputValueTests && hasDisable)
-            break;
-    }
-
-    if (hasInputValueTests)
-    {
-        dump += prefix + QLatin1String("local testPassed = true;\n");
-        for (const auto& ruleValueEntry : rangeOf(constOf(ruleNode->values)))
-        {
-            const auto valueDefId = ruleValueEntry.key();
-            const auto& valueDef = getValueDefinitionById(valueDefId);
-
-            // Test only input values
-            if (valueDef->valueClass != MapStyleValueDefinition::Class::Input)
-                continue;
-
-            const auto& resolvedRuleValue = ruleValueEntry.value();
-
-            //bool evaluationResult = false;
-            if (valueDefId == builtinValueDefs->id_INPUT_MINZOOM)
-            {
-                dump += prefix + QString(QLatin1String("if (testPassed) testPassed = (%1 <= %2);\n"))
-                    .arg(dumpResolvedValue(resolvedRuleValue, MapStyleValueDataType::Integer))
-                    .arg(valueDef->name);
-            }
-            else if (valueDefId == builtinValueDefs->id_INPUT_MAXZOOM)
-            {
-                dump += prefix + QString(QLatin1String("if (testPassed) testPassed = (%1 >= %2);\n"))
-                    .arg(dumpResolvedValue(resolvedRuleValue, MapStyleValueDataType::Integer))
-                    .arg(valueDef->name);
-            }
-            else if (valueDefId == builtinValueDefs->id_INPUT_ADDITIONAL)
-            {
-                dump += prefix + QString(QLatin1String("if (testPassed and inputMapObject) testPassed = (inputMapObject contains %1);\n"))
-                    .arg(dumpResolvedValue(resolvedRuleValue, MapStyleValueDataType::String));
-            }
-            else if (valueDefId == builtinValueDefs->id_INPUT_TEST)
-            {
-                dump += prefix + QString(QLatin1String("if (testPassed) testPassed = (%1 == 1);\n"))
-                    .arg(valueDef->name);
-            }
-            else if (valueDef->dataType == MapStyleValueDataType::Float)
-            {
-                dump += prefix + QString(QLatin1String("if (testPassed) testPassed = (%1 == %2);\n"))
-                    .arg(dumpResolvedValue(resolvedRuleValue, MapStyleValueDataType::Float))
-                    .arg(valueDef->name);
-            }
-            else if (valueDef->dataType == MapStyleValueDataType::Integer)
-            {
-                dump += prefix + QString(QLatin1String("if (testPassed) testPassed = (%1 == %2);\n"))
-                    .arg(dumpResolvedValue(resolvedRuleValue, MapStyleValueDataType::Integer))
-                    .arg(valueDef->name);
-            }
-            else if (valueDef->dataType == MapStyleValueDataType::Boolean)
-            {
-                dump += prefix + QString(QLatin1String("if (testPassed) testPassed = (%1 == %2);\n"))
-                    .arg(dumpResolvedValue(resolvedRuleValue, MapStyleValueDataType::Boolean))
-                    .arg(valueDef->name);
-            }
-            else if (valueDef->dataType == MapStyleValueDataType::String)
-            {
-                dump += prefix + QString(QLatin1String("if (testPassed) testPassed = (%1 == %2);\n"))
-                    .arg(dumpResolvedValue(resolvedRuleValue, MapStyleValueDataType::String))
-                    .arg(valueDef->name);
-            }
-            else
-            {
-                dump += prefix + QString(QLatin1String("// Unknown condition with '%1'\n"))
-                    .arg(valueDef->name);
-            }
-        }
-        if (rejectSupported)
-            dump += prefix + QLatin1String("if (not testPassed) reject;\n");
-        else
-            dump += prefix + QLatin1String("if (not testPassed) exit;\n");
-        dump += prefix + QLatin1String("\n");
-    }
-
-    if (hasDisable)
-    {
-        if (rejectSupported)
-            dump += prefix + QLatin1String("if (disable) reject;\n");
-        else
-            dump += prefix + QLatin1String("if (disable) exit;\n");
-        dump += prefix + QLatin1String("\n");
-    }
-
-    if (!ruleNode->isSwitch)
-        dump += dumpRuleNodeOutputValues(ruleNode, prefix, true);
-
-    if (!ruleNode->oneOfConditionalSubnodes.isEmpty())
-    {
-        dump += prefix + QLatin1String("local atLeastOneConditionalMatched = false;\n");
-        for (const auto& oneOfConditionalSubnode : constOf(ruleNode->oneOfConditionalSubnodes))
-        {
-            dump += prefix + QLatin1String("if (not atLeastOneConditionalMatched):\n");
-            dump += dumpRuleNode(oneOfConditionalSubnode, false, prefix + QLatin1String("\t"));
-            dump += prefix + QLatin1String("\tatLeastOneConditionalMatched = true;\n");
-        }
-        if (ruleNode->isSwitch)
-        {
-            if (rejectSupported)
-                dump += prefix + QLatin1String("if (not atLeastOneConditionalMatched) reject;\n");
-            else
-                dump += prefix + QLatin1String("if (not atLeastOneConditionalMatched) exit;\n");
-        }
-        dump += prefix + QLatin1String("\n");
-    }
-
-    if (ruleNode->isSwitch)
-        dump += dumpRuleNodeOutputValues(ruleNode, prefix, false);
-    
-    if (!ruleNode->applySubnodes.isEmpty())
-    {
-        for (const auto& applySubnode : constOf(ruleNode->applySubnodes))
-        {
-            dump += prefix + QLatin1String("apply:\n");
-            dump += dumpRuleNode(applySubnode, false, prefix + QLatin1String("\t"));
-        }
-        dump += prefix + QLatin1String("\n");
-    }
-
-    return dump;
-}
-
-QString OsmAnd::ResolvedMapStyle_P::dumpRuleNodeOutputValues(
-    const std::shared_ptr<const RuleNode>& ruleNode,
-    const QString& prefix,
-    const bool allowOverride) const
-{
-    QString dump;
-    const auto builtinValueDefs = MapStyleBuiltinValueDefinitions::get();
-
-    for (const auto& ruleValueEntry : rangeOf(constOf(ruleNode->values)))
-    {
-        const auto valueDefId = ruleValueEntry.key();
-        const auto& valueDef = getValueDefinitionById(valueDefId);
-
-        // Skip all non-Output values
-        if (valueDef->valueClass != MapStyleValueDefinition::Class::Output)
-            continue;
-
-        const auto& resolvedRuleValue = ruleValueEntry.value();
-
-        dump += prefix + QString(QLatin1String("%1 %2 = %3;\n"))
-            .arg(allowOverride ? QLatin1String("setOrOverride") : QLatin1String("setIfNotSet"))
-            .arg(valueDef->name)
-            .arg(dumpResolvedValue(resolvedRuleValue, valueDef->dataType));
-    }
-
-    return dump;
-}
-
-QString OsmAnd::ResolvedMapStyle_P::dumpResolvedValue(const ResolvedValue& value, const MapStyleValueDataType dataType) const
-{
-    if (value.isDynamic)
-    {
-        const auto attributeName = QString(QLatin1String("attribute $%1"))
-            .arg(getStringById(value.asDynamicValue.attribute->nameId));
-
-        switch (dataType)
-        {
-            case MapStyleValueDataType::Boolean:
-                return QString(QLatin1String("boolean(%1)")).arg(attributeName);
-
-            case MapStyleValueDataType::Integer:
-                return QString(QLatin1String("integer(%1)")).arg(attributeName);
-
-            case MapStyleValueDataType::Float:
-                return QString(QLatin1String("float(%1)")).arg(attributeName);
-
-            case MapStyleValueDataType::String:
-                return QString(QLatin1String("string(%1)")).arg(attributeName);
-
-            case MapStyleValueDataType::Color:
-                return QString(QLatin1String("color(%1)")).arg(attributeName);
-        }
-
-        return QString::null;
-    }
-
-    return dumpConstantValue(value.asConstantValue, dataType);
-}
-
-QString OsmAnd::ResolvedMapStyle_P::dumpConstantValue(
-    const MapStyleConstantValue& value,
-    const MapStyleValueDataType dataType) const
-{
-    if (dataType == MapStyleValueDataType::String)
-        return QString(QLatin1String("string(\"%1\")")).arg(getStringById(value.asSimple.asInt));
-
-    return value.toString(dataType);
 }

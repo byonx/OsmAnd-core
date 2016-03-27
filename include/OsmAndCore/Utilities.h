@@ -151,7 +151,7 @@ namespace OsmAnd
         inline static double getPowZoom(const float zoom)
         {
             if (zoom >= 0.0f && qFuzzyCompare(zoom, static_cast<uint8_t>(zoom)))
-                return 1 << static_cast<uint8_t>(zoom);
+                return 1u << static_cast<uint8_t>(zoom);
 
             return qPow(2, zoom);
         }
@@ -295,6 +295,44 @@ namespace OsmAnd
         inline static double polygonArea(const QVector<PointI>& points)
         {
             return static_cast<double>(doubledPolygonArea(points))* 0.5;
+        }
+
+        inline static bool rayIntersectX(const PointD& v0_, const PointD& v1_, double mY, double& mX)
+        {
+            // prev node above line
+            // x,y node below line
+
+            const auto& v0 = (v0_.y > v1_.y) ? v1_ : v0_;
+            const auto& v1 = (v0_.y > v1_.y) ? v0_ : v1_;
+
+            if (qFuzzyCompare(v1.y, mY) || qFuzzyCompare(v0.y, mY))
+                mY -= 1.0;
+
+            if (v0.y > mY || v1.y < mY)
+                return false;
+
+            if (v1 == v0)
+            {
+                // the node on the boundary !!!
+                mX = v1.x;
+                return true;
+            }
+
+            // that tested on all cases (left/right)
+            mX = v1.x + (mY - v1.y) * (v1.x - v0.x) / (v1.y - v0.y);
+            return true;
+        }
+
+        inline static bool rayIntersect(const PointD& v0, const PointD& v1, const PointD& v)
+        {
+            double t;
+            if (!rayIntersectX(v0, v1, v.y, t))
+                return false;
+
+            if (t < v.x)
+                return true;
+
+            return false;
         }
 
         inline static bool rayIntersectX(const PointF& v0_, const PointF& v1_, float mY, float& mX)
@@ -489,10 +527,13 @@ namespace OsmAnd
 #if !defined(SWIG)
         inline static AreaI64 boundingBox31FromAreaInMeters(const double radiusInMeters, const PointI center31)
         {
-            const auto x31r = metersToX31(radiusInMeters);
-            const auto y31r = metersToY31(radiusInMeters);
+            const auto metersPerUnit = getMetersPerTileUnit(
+                ZoomLevel31,
+                center31.y,
+                1);
+            const auto size = static_cast<int32_t>((radiusInMeters / metersPerUnit) * 2.0);
 
-            return AreaI64::fromCenterAndSize(center31.x, center31.y, x31r * 2, y31r * 2);
+            return AreaI64::fromCenterAndSize(center31.x, center31.y, size, size);
         }
 #endif // !defined(SWIG)
 
@@ -543,19 +584,67 @@ namespace OsmAnd
             return roundedBBox31;
         }
 
+        inline static uint32_t interleaveBy1(const uint16_t input)
+        {
+            auto output = static_cast<uint32_t>(input);
+            output = (output ^ (output << 8)) & 0x00ff00ff;
+            output = (output ^ (output << 4)) & 0x0f0f0f0f;
+            output = (output ^ (output << 2)) & 0x33333333;
+            output = (output ^ (output << 1)) & 0x55555555;
+            return output;
+        }
+
+        inline static uint32_t encodeMortonCode(const uint16_t x, const uint16_t y)
+        {
+            return interleaveBy1(x) | (interleaveBy1(y) << 1);
+        }
+
+        inline static uint16_t deinterleaveBy1(const uint32_t input)
+        {
+            auto output = input & 0x55555555;
+            output = (output ^ (output >> 1)) & 0x33333333;
+            output = (output ^ (output >> 2)) & 0x0f0f0f0f;
+            output = (output ^ (output >> 4)) & 0x00ff00ff;
+            output = (output ^ (output >> 8)) & 0x0000ffff;
+            return static_cast<uint16_t>(output);
+        }
+
+        inline static void decodeMortonCode(const uint32_t code, uint16_t& outX, uint16_t& outY)
+        {
+            outX = deinterleaveBy1(code);
+            outY = deinterleaveBy1(code >> 1);
+        }
+
+        static QVector<TileId> getTileIdsUnderscaledByZoomShift(
+            const TileId tileId,
+            const unsigned int absZoomShift)
+        {
+            const auto resultingTilesPerSideCount = (1u << absZoomShift);
+            const auto resultingTilesCount = resultingTilesPerSideCount * resultingTilesPerSideCount;
+            assert(resultingTilesCount <= std::numeric_limits<uint16_t>::max());
+
+            TileId originTileId = tileId;
+            originTileId.x <<= absZoomShift;
+            originTileId.y <<= absZoomShift;
+            QVector<TileId> resultingTiles(resultingTilesCount);
+            const auto pResultingTiles = resultingTiles.data();
+            for (auto x = 0u; x < resultingTilesPerSideCount; x++)
+                for (auto y = 0u; y < resultingTilesPerSideCount; y++)
+                    pResultingTiles[encodeMortonCode(x, y)] = originTileId + TileId::fromXY(x, y);
+
+            return resultingTiles;
+        }
+
         inline static TileId getTileIdOverscaledByZoomShift(
             const TileId tileId,
-            const int zoomShift,
+            const unsigned int absZoomShift,
             PointF* outNOffsetInTile = nullptr,
             PointF* outNSizeInTile = nullptr)
         {
-            assert(zoomShift < 0);
-
             TileId shiftedTileId = tileId;
             PointF nOffsetInTile;
             PointF nSizeInTile;
-            const auto absZoomShift = -zoomShift;
-            auto appliedAbsZoomShift = 0;
+            auto appliedAbsZoomShift = 0u;
             while (appliedAbsZoomShift < absZoomShift)
             {
                 nOffsetInTile.x = 0.5f * (static_cast<float>(shiftedTileId.x % 2) + nOffsetInTile.x);
@@ -580,9 +669,9 @@ namespace OsmAnd
             output.top() = input.top() >> shift;
             output.left() = input.left() >> shift;
 
-            tail = input.bottom() & ((1 << shift) - 1);
+            tail = input.bottom() & ((1u << shift) - 1);
             output.bottom() = (input.bottom() >> shift) + (tail ? 1 : 0);
-            tail = input.right() & ((1 << shift) - 1);
+            tail = input.right() & ((1u << shift) - 1);
             output.right() = (input.right() >> shift) + (tail ? 1 : 0);
 
             assert(output.top() >= 0 && output.top() <= std::numeric_limits<int32_t>::max());
@@ -772,10 +861,16 @@ namespace OsmAnd
         static bool parseArbitraryBool(const QString& value, const bool defValue, bool* wasParsed = nullptr);
 
         static int javaDoubleCompare(const double l, const double r);
-        static void findFiles(const QDir& origin, const QStringList& masks, QFileInfoList& files, const bool recursively = true);
-        static void findDirectories(const QDir& origin, const QStringList& masks, QFileInfoList& directories, const bool recursively = true);
-
-        static void scanlineFillPolygon(const unsigned int verticesCount, const PointF* const vertices, std::function<void(const PointI&)> fillPoint);
+        static void findFiles(
+            const QDir& origin,
+            const QStringList& masks,
+            QFileInfoList& files,
+            const bool recursively = true);
+        static void findDirectories(
+            const QDir& origin,
+            const QStringList& masks,
+            QFileInfoList& directories,
+            const bool recursively = true);
 
         inline static QSet<ZoomLevel> enumerateZoomLevels(const ZoomLevel from, const ZoomLevel to)
         {
@@ -809,6 +904,8 @@ namespace OsmAnd
             const float itemLength,
             const float padding = 0.0f,
             const float spacing = 0.0f);
+
+        static QString resolveColorFromPalette(const QString& input, const bool usePalette6);
     private:
         Utilities();
         ~Utilities();

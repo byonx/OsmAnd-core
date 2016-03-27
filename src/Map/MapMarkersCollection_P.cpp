@@ -1,6 +1,7 @@
 #include "MapMarkersCollection_P.h"
 #include "MapMarkersCollection.h"
 
+#include "MapDataProviderHelpers.h"
 #include "MapMarker.h"
 
 OsmAnd::MapMarkersCollection_P::MapMarkersCollection_P(MapMarkersCollection* const owner_)
@@ -55,18 +56,19 @@ QList<OsmAnd::IMapKeyedSymbolsProvider::Key> OsmAnd::MapMarkersCollection_P::get
 }
 
 bool OsmAnd::MapMarkersCollection_P::obtainData(
-    const IMapKeyedSymbolsProvider::Key key,
-    std::shared_ptr<IMapKeyedSymbolsProvider::Data>& outKeyedData,
-    const IQueryController* const queryController)
+    const IMapDataProvider::Request& request_,
+    std::shared_ptr<IMapDataProvider::Data>& outData)
 {
+    const auto& request = MapDataProviderHelpers::castRequest<MapMarkersCollection::Request>(request_);
+
     QReadLocker scopedLocker(&_markersLock);
 
-    const auto citMarker = _markers.constFind(key);
+    const auto citMarker = _markers.constFind(request.key);
     if (citMarker == _markers.cend())
         return false;
     auto& marker = *citMarker;
 
-    outKeyedData.reset(new IMapKeyedSymbolsProvider::Data(key, marker->createSymbolsGroup()));
+    outData.reset(new IMapKeyedSymbolsProvider::Data(request.key, marker->createSymbolsGroup()));
 
     return true;
 }

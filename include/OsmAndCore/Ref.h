@@ -72,8 +72,8 @@ namespace OsmAnd
 
 #ifdef Q_COMPILER_RVALUE_REFS
         template<typename OtherType, typename Check<Type, OtherType>::Valid* = nullptr>
-        inline Ref(Ref< OtherType >&& objectRef)
-            : _objectRef(qMove(objectRef))
+        inline Ref(Ref< OtherType >&& that)
+            : _objectRef(qMove(that._objectRef))
         {
         }
 #endif // defined(Q_COMPILER_RVALUE_REFS)
@@ -89,9 +89,33 @@ namespace OsmAnd
         }
 
         template<typename OtherType, typename Check<Type, OtherType>::Valid* = nullptr>
+        inline bool operator==(const std::shared_ptr< const OtherType >& rObjectRef) const
+        {
+            return (_objectRef == rObjectRef);
+        }
+
+        template<typename OtherType, typename Check<Type, OtherType>::Valid* = nullptr>
+        inline bool operator==(const OtherType* const pObject) const
+        {
+            return (_objectRef.get() == pObject);
+        }
+
+        template<typename OtherType, typename Check<Type, OtherType>::Valid* = nullptr>
         inline bool operator!=(const Ref< OtherType >& r) const
         {
             return (_objectRef != r._objectRef);
+        }
+
+        template<typename OtherType, typename Check<Type, OtherType>::Valid* = nullptr>
+        inline bool operator!=(const std::shared_ptr< const OtherType >& rObjectRef) const
+        {
+            return (_objectRef != rObjectRef);
+        }
+
+        template<typename OtherType, typename Check<Type, OtherType>::Valid* = nullptr>
+        inline bool operator!=(const OtherType* const pObject) const
+        {
+            return (_objectRef.get() == pObject);
         }
 
         template<typename OtherType, typename Check<Type, OtherType>::Valid* = nullptr>
@@ -179,6 +203,22 @@ namespace OsmAnd
         {
             return _objectRef;
         }
+
+#if !defined(SWIG)
+#   ifdef Q_COMPILER_RVALUE_REFS
+        template<typename... Args>
+        static inline RefT New(Args&&... args)
+        {
+            return RefT(new T(std::forward<Args>(args)...));
+        }
+#   else
+        template<typename... Args>
+        static inline RefT New(const Args&... args)
+        {
+            return RefT(new T(args...));
+        }
+#   endif
+#endif // !defined(SWIG)
 
     template<typename OtherType>
     friend class OsmAnd::Ref;

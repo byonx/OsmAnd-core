@@ -93,27 +93,15 @@ bool OsmAndTools::Styler::evaluate(EvaluatedMapObjects& outEvaluatedMapObjects, 
             break;
         }
 
-        // Dump style if asked to do so
-        if (!configuration.styleDumpFilename.isEmpty())
-        {
-            const auto dumpContent = mapStyle->dump();
-            QFile dumpFile(configuration.styleDumpFilename);
-            if (dumpFile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
-            {
-                QTextStream(&dumpFile) << dumpContent;
-                dumpFile.close();
-            }
-        }
-
         // Load all map objects
         const auto mapObjectsFilterById =
             [this]
             (const std::shared_ptr<const OsmAnd::ObfMapSectionInfo>& section,
-            const uint64_t mapObjectId,
-            const OsmAnd::AreaI& bbox,
-            const OsmAnd::ZoomLevel firstZoomLevel,
-            const OsmAnd::ZoomLevel lastZoomLevel,
-            const OsmAnd::ZoomLevel requestedZoom) -> bool
+                const uint64_t mapObjectId,
+                const OsmAnd::AreaI& bbox,
+                const OsmAnd::ZoomLevel firstZoomLevel,
+                const OsmAnd::ZoomLevel lastZoomLevel,
+                const OsmAnd::ZoomLevel requestedZoom) -> bool
             {
                 return configuration.mapObjectsIds.contains(mapObjectId);
             };
@@ -175,9 +163,13 @@ bool OsmAndTools::Styler::evaluate(EvaluatedMapObjects& outEvaluatedMapObjects, 
         const std::shared_ptr<OsmAnd::MapPrimitiviser> primitiviser(new OsmAnd::MapPrimitiviser(mapPresentationEnvironment));
         if (configuration.verbose)
             output << xT("Going to primitivise map objects...") << std::endl;
+        OsmAnd::MapPrimitiviser_Metrics::Metric_primitiviseAllMapObjects metrics;
         const auto primitivisedData = primitiviser->primitiviseAllMapObjects(
-                configuration.zoom,
-                mapObjects);
+            configuration.zoom,
+            mapObjects,
+            nullptr,
+            nullptr,
+            configuration.metrics ? &metrics : nullptr);
         if (configuration.verbose)
         {
             output
@@ -193,7 +185,7 @@ bool OsmAndTools::Styler::evaluate(EvaluatedMapObjects& outEvaluatedMapObjects, 
         {
             const auto& mapObject = primitivisedGroup->sourceObject;
             const auto binaryMapObject = std::dynamic_pointer_cast<const OsmAnd::BinaryMapObject>(mapObject);
-            const auto& encDecRules = mapObject->encodingDecodingRules;
+            const auto& attributeMapping = mapObject->attributeMapping;
 
             // Skip objects that were not requested
             if (!configuration.mapObjectsIds.isEmpty() &&
@@ -208,64 +200,60 @@ bool OsmAndTools::Styler::evaluate(EvaluatedMapObjects& outEvaluatedMapObjects, 
             output << QStringToStlString(QString(80, QLatin1Char('-'))) << std::endl;
             output << QStringToStlString(mapObject->toString()) << std::endl;
 
-            for (const auto& typeRuleId : OsmAnd::constOf(mapObject->typesRuleIds))
+            for (const auto& attributeId : OsmAnd::constOf(mapObject->attributeIds))
             {
-                const auto itTypeRule = encDecRules->decodingRules.constFind(typeRuleId);
-                if (itTypeRule != encDecRules->decodingRules.cend())
+                const auto attribute = attributeMapping->decodeMap.getRef(attributeId);
+                if (attribute)
                 {
-                    const auto& typeRule = *itTypeRule;
-
                     output
                         << xT("\tType: ")
-                        << QStringToStlString(typeRule.tag)
+                        << QStringToStlString(attribute->tag)
                         << xT(" = ")
-                        << QStringToStlString(typeRule.value)
+                        << QStringToStlString(attribute->value)
                         << std::endl;
                 }
                 else
                 {
-                    output << xT("\tType: #") << typeRuleId << xT(" (UNRESOLVED)") << std::endl;
+                    output << xT("\tType: #") << attributeId << xT(" (UNRESOLVED)") << std::endl;
                 }
             }
 
-            for (const auto& typeRuleId : OsmAnd::constOf(mapObject->additionalTypesRuleIds))
+            for (const auto& attributeId : OsmAnd::constOf(mapObject->additionalAttributeIds))
             {
-                const auto itTypeRule = encDecRules->decodingRules.constFind(typeRuleId);
-                if (itTypeRule != encDecRules->decodingRules.cend())
+                const auto attribute = attributeMapping->decodeMap.getRef(attributeId);
+                if (attribute)
                 {
-                    const auto& typeRule = *itTypeRule;
-
                     output
                         << xT("\tExtra type: ")
-                        << QStringToStlString(typeRule.tag)
+                        << QStringToStlString(attribute->tag)
                         << xT(" = ")
-                        << QStringToStlString(typeRule.value)
+                        << QStringToStlString(attribute->value)
                         << std::endl;
                 }
                 else
                 {
-                    output << xT("\tExtra type: #") << typeRuleId << xT(" (UNRESOLVED)") << std::endl;
+                    output << xT("\tExtra type: #") << attributeId << xT(" (UNRESOLVED)") << std::endl;
                 }
             }
 
-            for (const auto& captionTagId : OsmAnd::constOf(mapObject->captionsOrder))
+            for (const auto& captionAttributeId : OsmAnd::constOf(mapObject->captionsOrder))
             {
-                const auto& captionValue = mapObject->captions[captionTagId];
+                const auto& captionValue = mapObject->captions[captionAttributeId];
 
-                if (encDecRules->name_encodingRuleId == captionTagId)
+                if (attributeMapping->nativeNameAttributeId == captionAttributeId)
                     output << xT("\tCaption: ") << QStringToStlString(captionValue) << std::endl;
-                else if (encDecRules->ref_encodingRuleId == captionTagId)
+                else if (attributeMapping->refAttributeId == captionAttributeId)
                     output << xT("\tRef: ") << QStringToStlString(captionValue) << std::endl;
                 else
                 {
-                    const auto itCaptionTagAsLocalizedName = encDecRules->localizedName_decodingRules.constFind(captionTagId);
-                    const auto itCaptionTagRule = encDecRules->decodingRules.constFind(captionTagId);
+                    const auto itCaptionTagAsLocalizedName = attributeMapping->localizedNameAttributeIds.constFind(captionAttributeId);
+                    const auto attribute = attributeMapping->decodeMap.getRef(captionAttributeId);
 
                     QString captionTag(QLatin1String("UNRESOLVED"));
-                    if (itCaptionTagAsLocalizedName != encDecRules->localizedName_decodingRules.cend())
-                        captionTag = *itCaptionTagAsLocalizedName;
-                    if (itCaptionTagRule != encDecRules->decodingRules.cend())
-                        captionTag = itCaptionTagRule->tag;
+                    if (itCaptionTagAsLocalizedName != attributeMapping->localizedNameAttributeIds.cend())
+                        captionTag = itCaptionTagAsLocalizedName->toString();
+                    if (attribute)
+                        captionTag = attribute->tag;
                     output
                         << xT("\tCaption [")
                         << QStringToStlString(captionTag)
@@ -283,37 +271,33 @@ bool OsmAndTools::Styler::evaluate(EvaluatedMapObjects& outEvaluatedMapObjects, 
                 for (const auto& pointPrimitive : OsmAnd::constOf(primitivisedGroup->points))
                 {
                     output << xT("\tPoint #") << pointPrimitiveIndex << std::endl;
-                    QString ruleTag;
-                    QString ruleValue;
-                    const auto typeRuleResolved = mapObject->obtainTagValueByTypeRuleIndex(
-                        pointPrimitive->typeRuleIdIndex,
-                        ruleTag,
-                        ruleValue);
-                    if (typeRuleResolved)
+                    const auto attribute = mapObject->resolveAttributeByIndex(pointPrimitive->attributeIdIndex);
+                    if (attribute)
                     {
                         output
-                            << xT("\t\tTag/value: ")
-                            << QStringToStlString(ruleTag)
+                            << xT("\t\tAttribute: ")
+                            << QStringToStlString(attribute->tag)
                             << xT(" = ")
-                            << QStringToStlString(ruleValue)
+                            << QStringToStlString(attribute->value)
                             << std::endl;
                     }
                     else
                     {
                         output
-                            << xT("\t\tTag/value: ")
-                            << pointPrimitive->typeRuleIdIndex
+                            << xT("\t\tAttribute: ")
+                            << pointPrimitive->attributeIdIndex
                             << xT(" (failed to resolve)")
                             << std::endl;
                     }
                     output << xT("\t\tZ order: ") << pointPrimitive->zOrder << std::endl;
                     output << xT("\t\tArea*2: ") << pointPrimitive->doubledArea << std::endl;
-                    for (const auto& evaluatedValueEntry : OsmAnd::rangeOf(OsmAnd::constOf(pointPrimitive->evaluationResult.values)))
+                    const auto& values = pointPrimitive->evaluationResult.getValues();
+                    for (const auto& evaluatedValueEntry : OsmAnd::rangeOf(values))
                     {
                         const auto valueDefinitionId = evaluatedValueEntry.key();
                         const auto value = evaluatedValueEntry.value();
 
-                        const auto valueDefinition = mapStyle->getValueDefinitionById(valueDefinitionId);
+                        const auto& valueDefinition = mapStyle->getValueDefinitionById(valueDefinitionId);
 
                         output << xT("\t\t") << QStringToStlString(valueDefinition->name) << xT(" = ");
                         if (valueDefinition->dataType == OsmAnd::MapStyleValueDataType::Color)
@@ -335,36 +319,32 @@ bool OsmAndTools::Styler::evaluate(EvaluatedMapObjects& outEvaluatedMapObjects, 
                 for (const auto& polylinePrimitive : OsmAnd::constOf(primitivisedGroup->polylines))
                 {
                     output << xT("\tPolyline #") << polylinePrimitiveIndex << std::endl;
-                    QString ruleTag;
-                    QString ruleValue;
-                    const auto typeRuleResolved = mapObject->obtainTagValueByTypeRuleIndex(
-                        polylinePrimitive->typeRuleIdIndex,
-                        ruleTag,
-                        ruleValue);
-                    if (typeRuleResolved)
+                    const auto attribute = mapObject->resolveAttributeByIndex(polylinePrimitive->attributeIdIndex);
+                    if (attribute)
                     {
                         output
-                            << xT("\t\tTag/value: ")
-                            << QStringToStlString(ruleTag)
+                            << xT("\t\tAttribute: ")
+                            << QStringToStlString(attribute->tag)
                             << xT(" = ")
-                            << QStringToStlString(ruleValue) << std::endl;
+                            << QStringToStlString(attribute->value) << std::endl;
                     }
                     else
                     {
                         output
-                            << xT("\t\tTag/value: ")
-                            << polylinePrimitive->typeRuleIdIndex
+                            << xT("\t\tAttribute: ")
+                            << polylinePrimitive->attributeIdIndex
                             << xT(" (failed to resolve)")
                             << std::endl;
                     }
                     output << xT("\t\tZ order: ") << polylinePrimitive->zOrder << std::endl;
                     output << xT("\t\tArea*2: ") << polylinePrimitive->doubledArea << std::endl;
-                    for (const auto& evaluatedValueEntry : OsmAnd::rangeOf(OsmAnd::constOf(polylinePrimitive->evaluationResult.values)))
+                    const auto& values = polylinePrimitive->evaluationResult.getValues();
+                    for (const auto& evaluatedValueEntry : OsmAnd::rangeOf(values))
                     {
                         const auto valueDefinitionId = evaluatedValueEntry.key();
                         const auto value = evaluatedValueEntry.value();
 
-                        const auto valueDefinition = mapStyle->getValueDefinitionById(valueDefinitionId);
+                        const auto& valueDefinition = mapStyle->getValueDefinitionById(valueDefinitionId);
 
                         output << xT("\t\t") << QStringToStlString(valueDefinition->name) << xT(" = ");
                         if (valueDefinition->dataType == OsmAnd::MapStyleValueDataType::Color)
@@ -386,37 +366,33 @@ bool OsmAndTools::Styler::evaluate(EvaluatedMapObjects& outEvaluatedMapObjects, 
                 for (const auto& polygonPrimitive : OsmAnd::constOf(primitivisedGroup->polygons))
                 {
                     output << xT("\tPolygon #") << polygonPrimitiveIndex << std::endl;
-                    QString ruleTag;
-                    QString ruleValue;
-                    const auto typeRuleResolved = mapObject->obtainTagValueByTypeRuleIndex(
-                        polygonPrimitive->typeRuleIdIndex,
-                        ruleTag,
-                        ruleValue);
-                    if (typeRuleResolved)
+                    const auto attribute = mapObject->resolveAttributeByIndex(polygonPrimitive->attributeIdIndex);
+                    if (attribute)
                     {
                         output
-                            << xT("\t\tTag/value: ")
-                            << QStringToStlString(ruleTag)
+                            << xT("\t\tAttribute: ")
+                            << QStringToStlString(attribute->tag)
                             << xT(" = ")
-                            << QStringToStlString(ruleValue)
+                            << QStringToStlString(attribute->value)
                             << std::endl;
                     }
                     else
                     {
                         output
-                            << xT("\t\tTag/value: ")
-                            << polygonPrimitive->typeRuleIdIndex
+                            << xT("\t\tAttribute: ")
+                            << polygonPrimitive->attributeIdIndex
                             << xT(" (failed to resolve)")
                             << std::endl;
                     }
                     output << xT("\t\tZ order: ") << polygonPrimitive->zOrder << std::endl;
                     output << xT("\t\tArea*2: ") << polygonPrimitive->doubledArea << std::endl;
-                    for (const auto& evaluatedValueEntry : OsmAnd::rangeOf(OsmAnd::constOf(polygonPrimitive->evaluationResult.values)))
+                    const auto& values = polygonPrimitive->evaluationResult.getValues();
+                    for (const auto& evaluatedValueEntry : OsmAnd::rangeOf(values))
                     {
                         const auto valueDefinitionId = evaluatedValueEntry.key();
                         const auto value = evaluatedValueEntry.value();
 
-                        const auto valueDefinition = mapStyle->getValueDefinitionById(valueDefinitionId);
+                        const auto& valueDefinition = mapStyle->getValueDefinitionById(valueDefinitionId);
 
                         output << xT("\t\t") << QStringToStlString(valueDefinition->name) << xT(" = ");
                         if (valueDefinition->dataType == OsmAnd::MapStyleValueDataType::Color)
@@ -511,12 +487,18 @@ bool OsmAndTools::Styler::evaluate(EvaluatedMapObjects& outEvaluatedMapObjects, 
                             << xT("\t\tShield resource name: ")
                             << QStringToStlString(textSymbol->shieldResourceName)
                             << std::endl;
+                        output
+                            << xT("\t\tUnderlay icon name: ")
+                            << QStringToStlString(textSymbol->underlayIconResourceName)
+                            << std::endl;
                     }
                     else if (iconSymbol)
                     {
                         output << xT("\t\tIcon resource name: ") << QStringToStlString(iconSymbol->resourceName) << std::endl;
-                        for (const auto& overlayResoucreName : iconSymbol->overlayResourceNames)
-                            output << xT("\t\tOverlay resource name: ") << QStringToStlString(overlayResoucreName) << std::endl;
+                        output
+                            << xT("\t\tOverlay resource names: ")
+                            << QStringToStlString(QStringList(iconSymbol->overlayResourceNames).join(QLatin1String(", ")))
+                            << std::endl;
                         output
                             << xT("\t\tShield resource name: ")
                             << QStringToStlString(iconSymbol->shieldResourceName)
@@ -527,6 +509,14 @@ bool OsmAndTools::Styler::evaluate(EvaluatedMapObjects& outEvaluatedMapObjects, 
                     symbolIndex++;
                 }
             }
+        }
+
+        if (configuration.metrics)
+        {
+            output
+                << xT("Metrics:\n")
+                << QStringToStlString(metrics.toString(false, QLatin1String("\t")))
+                << std::endl;
         }
 
         break;
@@ -568,6 +558,7 @@ OsmAndTools::Styler::Configuration::Configuration()
     , mapScale(1.0f)
     , symbolsScale(1.0f)
     , locale(QLatin1String("en"))
+    , metrics(false)
     , verbose(false)
 {
 }
@@ -738,15 +729,13 @@ bool OsmAndTools::Styler::Configuration::parseFromCommandLineArguments(
 
             outConfiguration.locale = value;
         }
+        else if (arg == QLatin1String("-metrics"))
+        {
+            outConfiguration.metrics = true;
+        }
         else if (arg == QLatin1String("-verbose"))
         {
             outConfiguration.verbose = true;
-        }
-        else if (arg.startsWith(QLatin1String("-styleDump=")))
-        {
-            const auto value = Utilities::purifyArgumentValue(arg.mid(strlen("-styleDump=")));
-
-            outConfiguration.styleDumpFilename = value;
         }
         else
         {

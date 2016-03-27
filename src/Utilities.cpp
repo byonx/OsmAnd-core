@@ -55,7 +55,7 @@ double OsmAnd::Utilities::parseSpeed(const QString& value, double defValue, bool
         return defValue;
     }
     bool ok;
-    auto result = value.mid(first, last - first + 1).toDouble(&ok);
+    auto result = value.midRef(first, last - first + 1).toDouble(&ok);
     if (wasParsed)
         *wasParsed = ok;
     if (!ok)
@@ -75,7 +75,7 @@ double OsmAnd::Utilities::parseLength(const QString& value, double defValue, boo
     if (!extractFirstNumberPosition(value, first, last, false, true))
         return defValue;
     bool ok;
-    auto result = value.mid(first, last - first + 1).toDouble(&ok);
+    auto result = value.midRef(first, last - first + 1).toDouble(&ok);
     if (!ok)
         return defValue;
 
@@ -94,7 +94,7 @@ double OsmAnd::Utilities::parseLength(const QString& value, double defValue, boo
             return defValue;
         }
         bool ok;
-        auto inches = inchesSubstr.mid(first, last - first + 1).toDouble(&ok);
+        auto inches = inchesSubstr.midRef(first, last - first + 1).toDouble(&ok);
         if (ok)
             result += inches * 0.0254;
     }
@@ -109,7 +109,7 @@ double OsmAnd::Utilities::parseWeight(const QString& value, double defValue, boo
     if (!extractFirstNumberPosition(value, first, last, false, true))
         return defValue;
     bool ok;
-    auto result = value.mid(first, last - first + 1).toDouble(&ok);
+    auto result = value.midRef(first, last - first + 1).toDouble(&ok);
     if (!ok)
         return defValue;
 
@@ -129,7 +129,7 @@ OsmAnd::ColorARGB OsmAnd::Utilities::parseColor(const QString& value, const Colo
 		return defValue;
 
 	ColorARGB result;
-	result.argb = value.mid(1).toUInt(nullptr, 16);
+    result.argb = value.midRef(1).toUInt(nullptr, 16);
 	if (value.size() <= 7)
 		result.setAlpha(0xFF);
 
@@ -147,7 +147,7 @@ int OsmAnd::Utilities::parseArbitraryInt(const QString& value, int defValue, boo
     if (!extractFirstNumberPosition(value, first, last, true, false))
         return defValue;
     bool ok;
-    auto result = value.mid(first, last - first + 1).toInt(&ok);
+    auto result = value.midRef(first, last - first + 1).toInt(&ok);
     if (!ok)
         return defValue;
 
@@ -164,7 +164,7 @@ long OsmAnd::Utilities::parseArbitraryLong(const QString& value, long defValue, 
     if (!extractFirstNumberPosition(value, first, last, true, false))
         return defValue;
     bool ok;
-    auto result = value.mid(first, last - first + 1).toLong(&ok);
+    auto result = value.midRef(first, last - first + 1).toLong(&ok);
     if (!ok)
         return defValue;
 
@@ -181,7 +181,7 @@ unsigned int OsmAnd::Utilities::parseArbitraryUInt(const QString& value, unsigne
     if (!extractFirstNumberPosition(value, first, last, false, false))
         return defValue;
     bool ok;
-    auto result = value.mid(first, last - first + 1).toUInt(&ok);
+    auto result = value.midRef(first, last - first + 1).toUInt(&ok);
     if (!ok)
         return defValue;
 
@@ -198,7 +198,7 @@ unsigned long OsmAnd::Utilities::parseArbitraryULong(const QString& value, unsig
     if (!extractFirstNumberPosition(value, first, last, false, false))
         return defValue;
     bool ok;
-    auto result = value.mid(first, last - first + 1).toULong(&ok);
+    auto result = value.midRef(first, last - first + 1).toULong(&ok);
     if (!ok)
         return defValue;
 
@@ -215,7 +215,7 @@ float OsmAnd::Utilities::parseArbitraryFloat(const QString& value, float defValu
     if (!extractFirstNumberPosition(value, first, last, true, true))
         return defValue;
     bool ok;
-    auto result = value.mid(first, last - first + 1).toFloat(&ok);
+    auto result = value.midRef(first, last - first + 1).toFloat(&ok);
     if (!ok)
         return defValue;
 
@@ -297,225 +297,12 @@ void OsmAnd::Utilities::findDirectories(const QDir& origin, const QStringList& m
     }
 }
 
-void OsmAnd::Utilities::scanlineFillPolygon(const unsigned int verticesCount, const PointF* vertices, std::function<void(const PointI&)> fillPoint)
-{
-    // Find min-max of Y
-    float yMinF, yMaxF;
-    yMinF = yMaxF = vertices[0].y;
-    for(auto idx = 1u; idx < verticesCount; idx++)
-    {
-        const auto& y = vertices[idx].y;
-        if (y > yMaxF)
-            yMaxF = y;
-        if (y < yMinF)
-            yMinF = y;
-    }
-    const auto rowMin = qFloor(yMinF);
-    const auto rowMax = qFloor(yMaxF);
-
-    // Build set of edges
-    struct Edge
-    {
-        const PointF* v0;
-        int startRow;
-        const PointF* v1;
-        int endRow;
-        float xOrigin;
-        float slope;
-        int nextRow;
-    };
-    QVector<Edge*> edges;
-    edges.reserve(verticesCount);
-    auto edgeIdx = 0u;
-    for(auto idx = 0u, prevIdx = verticesCount - 1; idx < verticesCount; prevIdx = idx++)
-    {
-        auto v0 = &vertices[prevIdx];
-        auto v1 = &vertices[idx];
-
-        if (v0->y == v1->y)
-        {
-            // Horizontal edge
-            auto edge = new Edge();
-            edge->v0 = v0;
-            edge->v1 = v1;
-            edge->startRow = qFloor(edge->v0->y);
-            edge->endRow = qFloor(edge->v1->y);
-            edge->xOrigin = edge->v0->x;
-            edge->slope = 0;
-            edge->nextRow = qFloor(edge->v0->y) + 1;
-            edges.push_back(edge);
-            //LogPrintf(LogSeverityLevel::Debug, "Edge %p y(%d %d)(%f %f), next row = %d", edge, edge->startRow, edge->endRow, edge->v0->y, edge->v1->y, edge->nextRow);
-
-            continue;
-        }
-
-        const PointF* pLower = nullptr;
-        const PointF* pUpper = nullptr;
-        if (v0->y < v1->y)
-        {
-            // Up-going edge
-            pLower = v0;
-            pUpper = v1;
-        }
-        else if (v0->y > v1->y)
-        {
-            // Down-going edge
-            pLower = v1;
-            pUpper = v0;
-        }
-
-        // Fill edge 
-        auto edge = new Edge();
-        edge->v0 = pLower;
-        edge->v1 = pUpper;
-        edge->startRow = qFloor(edge->v0->y);
-        edge->endRow = qFloor(edge->v1->y);
-        edge->slope = (edge->v1->x - edge->v0->x) / (edge->v1->y - edge->v0->y);
-        edge->xOrigin = edge->v0->x - edge->slope * (edge->v0->y - qFloor(edge->v0->y));
-        edge->nextRow = qFloor(edge->v1->y) + 1;
-        for(auto vertexIdx = 0u; vertexIdx < verticesCount; vertexIdx++)
-        {
-            const auto& v = vertices[vertexIdx];
-
-            if (v.y > edge->v0->y && qFloor(v.y) < edge->nextRow)
-                edge->nextRow = qFloor(v.y);
-        }
-        //LogPrintf(LogSeverityLevel::Debug, "Edge %p y(%d %d)(%f %f), next row = %d", edge, edge->startRow, edge->endRow, edge->v0->y, edge->v1->y, edge->nextRow);
-        edges.push_back(edge);
-    }
-
-    // Sort edges by ascending Y
-    qSort(edges.begin(), edges.end(), [](Edge* l, Edge* r) -> bool
-    {
-        return l->v0->y > r->v0->y;
-    });
-
-    // Loop in [yMin .. yMax]
-    QVector<Edge*> aet;
-    aet.reserve(edges.size());
-    for(auto rowIdx = rowMin; rowIdx <= rowMax;)
-    {
-        //LogPrintf(LogSeverityLevel::Debug, "------------------ %d -----------------", rowIdx);
-
-        // Find active edges
-        int nextRow = rowMax;
-        for(const auto& edge : constOf(edges))
-        {
-            const auto isHorizontal = (edge->startRow == edge->endRow);
-            if (nextRow > edge->nextRow && edge->nextRow > rowIdx && !isHorizontal)
-                nextRow = edge->nextRow;
-
-            if (edge->startRow != rowIdx)
-                continue;
-
-            if (isHorizontal)
-            {
-                // Fill horizontal edge
-                const auto xMin = qFloor(qMin(edge->v0->x, edge->v1->x));
-                const auto xMax = qFloor(qMax(edge->v0->x, edge->v1->x));
-                /*for(auto x = xMin; x <= xMax; x++)
-                    fillPoint(PointI(x, rowIdx));*/
-                continue;
-            }
-
-            //LogPrintf(LogSeverityLevel::Debug, "line %d. Adding edge %p y(%f %f)", rowIdx, edge, edge->v0->y, edge->v1->y);
-            aet.push_back(edge);
-            continue;
-        }
-
-        // If there are no active edges, we've finished filling
-        if (aet.isEmpty())
-            break;
-        assert(aet.size() % 2 == 0);
-
-        // Sort aet by X
-        qSort(aet.begin(), aet.end(), [](Edge* l, Edge* r) -> bool
-        {
-            return l->v0->x > r->v0->x;
-        });
-
-        // Find next row
-        for(; rowIdx < nextRow; rowIdx++)
-        {
-            const unsigned int pairsCount = aet.size() / 2;
-
-            auto itEdgeL = aet.cbegin();
-            auto itEdgeR = itEdgeL + 1;
-
-            for(auto pairIdx = 0u; pairIdx < pairsCount; pairIdx++, itEdgeL = ++itEdgeR, ++itEdgeR)
-            {
-                auto lEdge = *itEdgeL;
-                auto rEdge = *itEdgeR;
-
-                // Fill from l to r
-                auto lXf = lEdge->xOrigin + (rowIdx - lEdge->startRow + 0.5f) * lEdge->slope;
-                auto rXf = rEdge->xOrigin + (rowIdx - rEdge->startRow + 0.5f) * rEdge->slope;
-                auto xMinF = qMin(lXf, rXf);
-                auto xMaxF = qMax(lXf, rXf);
-                auto xMin = qFloor(xMinF);
-                auto xMax = qFloor(xMaxF);
-
-                LogPrintf(LogSeverityLevel::Debug, "line %d from %d(%f) to %d(%f)", rowIdx, xMin, xMinF, xMax, xMaxF);
-                /*for(auto x = xMin; x <= xMax; x++)
-                    fillPoint(PointI(x, rowIdx));*/
-            }
-        }
-
-        // Deactivate those edges that have end at yNext
-        for(auto itEdge = aet.begin(); itEdge != aet.end();)
-        {
-            auto edge = *itEdge;
-
-            if (edge->endRow <= nextRow)
-            {
-                // When we're done processing the edge, fill it Y-by-X
-                auto startCol = qFloor(edge->v0->x);
-                auto endCol = qFloor(edge->v1->x);
-                auto revSlope = 1.0f / edge->slope;
-                auto yOrigin = edge->v0->y - revSlope * (edge->v0->x - qFloor(edge->v0->x));
-                auto xMax = qMax(startCol, endCol);
-                auto xMin = qMin(startCol, endCol);
-                for(auto colIdx = xMin; colIdx <= xMax; colIdx++)
-                {
-                    auto yf = yOrigin + (colIdx - startCol + 0.5f) * revSlope;
-                    auto y = qFloor(yf);
-
-                    LogPrintf(LogSeverityLevel::Debug, "col %d(s%d) added Y = %d (%f)", colIdx, colIdx - startCol, y, yf);
-                    fillPoint(PointI(colIdx, y));
-                }
-
-                //////////////////////////////////////////////////////////////////////////
-                auto yMax = qMax(edge->startRow, edge->endRow);
-                auto yMin = qMin(edge->startRow, edge->endRow);
-                for(auto rowIdx_ = yMin; rowIdx_ <= yMax; rowIdx_++)
-                {
-                    auto xf = edge->xOrigin + (rowIdx_ - edge->startRow + 0.5f) * edge->slope;
-                    auto x = qFloor(xf);
-
-                    LogPrintf(LogSeverityLevel::Debug, "row %d(s%d) added Y = %d (%f)", rowIdx_, rowIdx_ - edge->startRow, x, xf);
-                    fillPoint(PointI(x, rowIdx_));
-                }
-                //////////////////////////////////////////////////////////////////////////
-
-                //LogPrintf(LogSeverityLevel::Debug, "line %d. Removing edge %p y(%f %f)", rowIdx, edge, edge->v0->y, edge->v1->y);
-                itEdge = aet.erase(itEdge);
-            }
-            else
-                ++itEdge;
-        }
-    }
-
-    // Cleanup
-    for(const auto& edge : constOf(edges))
-        delete edge;
-}
-
 QString OsmAnd::Utilities::stringifyZoomLevels(const QSet<ZoomLevel>& zoomLevels)
 {
     QString result;
 
     auto sortedZoomLevels = zoomLevels.values();
-    qSort(sortedZoomLevels.begin(), sortedZoomLevels.end());
+    std::sort(sortedZoomLevels);
     bool previousCaptured = false;
     ZoomLevel previousZoomLevel = sortedZoomLevels.first();
     bool range = false;
@@ -592,7 +379,7 @@ QList<OsmAnd::Utilities::ItemPointOnPath> OsmAnd::Utilities::calculateItemPoints
     }
     for (int priority = 0; priority < depth; priority++)
     {
-        int ln = (1 << (priority + 1));
+        int ln = (1u << (priority + 1));
         for (int i = 1; i < ln; i += 2)
         {
             const auto offset = (pathLength * static_cast<float>(i)) / static_cast<float>(ln);
@@ -601,4 +388,164 @@ QList<OsmAnd::Utilities::ItemPointOnPath> OsmAnd::Utilities::calculateItemPoints
     }
 
     return itemPoints;
+}
+
+QString OsmAnd::Utilities::resolveColorFromPalette(const QString& input, const bool usePalette6)
+{
+    auto value = input.toLower();
+
+    bool colorWasParsed = false;
+    const auto parsedColor = parseColor(input, ColorARGB(), &colorWasParsed);
+    ColorHSV hsv;
+    if (colorWasParsed)
+        hsv = ColorRGB(parsedColor).toHSV();
+    const auto h = hsv.h;
+    const auto s = hsv.s * 100.0f;
+    const auto v = hsv.v * 100.0f;
+
+    if ((h < 14 && s > 25 && v > 30) ||
+        (h > 326 && s > 25 && v > 30) ||
+        (h < 16 && s > 10 && s < 25 && v > 90) ||
+        (h > 326 && s > 10 && s < 25 && v > 90) ||
+        value == QLatin1String("pink") ||
+        value.contains("red") ||
+        value == QLatin1String("pink/white") ||
+        value == QLatin1String("white-red") ||
+        value == QLatin1String("ff0000") ||
+        value == QLatin1String("800000") ||
+        value == QLatin1String("red/tan") ||
+        value == QLatin1String("tan/red") ||
+        value == QLatin1String("rose"))
+    {
+        value = QLatin1String("red");
+    }
+    else if (
+        (h >= 16 && h < 50 && s > 25 && v > 20 && v < 60) ||
+        value == QLatin1String("brown") ||
+        value == QLatin1String("darkbrown") ||
+        value == QLatin1String("tan/brown") ||
+        value == QLatin1String("tan_brown") ||
+        value == QLatin1String("brown/tan") ||
+        value == QLatin1String("light_brown") ||
+        value == QLatin1String("brown/white") ||
+        value == QLatin1String("tan"))
+    {
+        value = QLatin1String(usePalette6 ? "red" : "brown");
+    }
+    else if (
+        (h >= 14 && h < 42 && v > 60) ||
+        value == QLatin1String("orange") ||
+        value == QLatin1String("cream") ||
+        value == QLatin1String("gold") ||
+        value == QLatin1String("yellow-red") ||
+        value == QLatin1String("ff8c00") ||
+        value == QLatin1String("peach"))
+    {
+        value = QLatin1String(usePalette6 ? "red" : "orange");
+    }
+    else if (
+        (h >= 42 && h < 73 && s > 30 && v > 80) ||
+        value == QLatin1String("yellow") ||
+        value == QLatin1String("gelb") ||
+        value == QLatin1String("ffff00") ||
+        value == QLatin1String("beige") ||
+        value == QLatin1String("lightyellow") ||
+        value == QLatin1String("jaune"))
+    {
+        value = QLatin1String("yellow");
+    }
+    else if ((h >= 42 && h < 73 && s > 30 && v > 60 && v < 80))
+    {
+        value = QLatin1String(usePalette6 ? "yellow" : "darkyellow");
+    }
+    else if ((h >= 74 && h < 150 && s > 30 && v > 77) ||
+        value == QLatin1String("lightgreen") ||
+        value == QLatin1String("lime") ||
+        value == QLatin1String("seagreen") ||
+        value == QLatin1String("00ff00") ||
+        value == QLatin1String("yellow/green"))
+    {
+        value = QLatin1String(usePalette6 ? "green" : "lightgreen");
+    }
+    else if (
+        (h >= 74 && h < 174 && s > 30 && v > 30 && v < 77) ||
+        value.contains("green") ||
+        value == QLatin1String("darkgreen") ||
+        value == QLatin1String("natural") ||
+        value == QLatin1String("natur") ||
+        value == QLatin1String("mediumseagreen") ||
+        value == QLatin1String("green/white") ||
+        value == QLatin1String("white/green") ||
+        value == QLatin1String("blue/yellow") ||
+        value == QLatin1String("vert") ||
+        value == QLatin1String("green/blue") ||
+        value == QLatin1String("olive"))
+    {
+        value = QLatin1String("green");
+    }
+    else if (
+        (h >= 174 && h < 215 && s > 32 && v > 50) ||
+        value == QLatin1String("lightblue") ||
+        value == QLatin1String("aqua") ||
+        value == QLatin1String("cyan") ||
+        value == QLatin1String("87ceeb") ||
+        value == QLatin1String("turquoise"))
+    {
+        value = QLatin1String(usePalette6 ? "blue" : "lightblue");
+    }
+    else if (
+        (h >= 215 && h < 265 && s > 40 && v > 30) ||
+        value.contains("blue") ||
+        value == QLatin1String("0000ff") ||
+        value == QLatin1String("teal") ||
+        value == QLatin1String("darkblue") ||
+        value == QLatin1String("blu") ||
+        value == QLatin1String("navy"))
+    {
+        value = QLatin1String("blue");
+    }
+    else if (
+        (h >= 265 && h < 325 && s > 15 && v >= 27) ||
+        (h > 250 && h < 325 && s > 10 && s < 25 && v > 90) ||
+        value == QLatin1String("purple") ||
+        value == QLatin1String("violet") ||
+        value == QLatin1String("magenta") ||
+        value == QLatin1String("maroon") ||
+        value == QLatin1String("fuchsia") ||
+        value == QLatin1String("800080"))
+    {
+        value = QLatin1String(usePalette6 ? "blue" : "purple");
+    }
+    else if (
+        (colorWasParsed && v < 27) ||
+        value.contains("black") ||
+        value == QLatin1String("darkgrey"))
+    {
+        value = QLatin1String("black");
+    }
+    else if (
+        (s < 32 && v > 30 && v < 90) ||
+        value == QLatin1String("gray") ||
+        value == QLatin1String("grey") ||
+        value == QLatin1String("grey/tan") ||
+        value == QLatin1String("silver") ||
+        value == QLatin1String("srebrny") ||
+        value == QLatin1String("lightgrey") ||
+        value == QLatin1String("lightgray") ||
+        value == QLatin1String("metal"))
+    {
+        value = QLatin1String(usePalette6 ? "white" : "gray");
+    }
+    else if (
+        (s < 5 && v > 95) ||
+        value.contains("white") /*|| value == QLatin1String("white/tan")*/)
+    {
+        value = QLatin1String("white");
+    }
+    else if (colorWasParsed)
+    {
+        value = QLatin1String("gray");
+    }
+
+    return value;
 }

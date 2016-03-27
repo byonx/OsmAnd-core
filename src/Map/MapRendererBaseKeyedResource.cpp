@@ -3,10 +3,9 @@
 OsmAnd::MapRendererBaseKeyedResource::MapRendererBaseKeyedResource(
     MapRendererResourcesManager* owner_,
     const MapRendererResourceType type_,
-    const IMapDataProvider::SourceType sourceType_,
     const KeyedEntriesCollection<Key, MapRendererBaseKeyedResource>& collection_,
     const Key key_)
-    : MapRendererBaseResource(owner_, type_, sourceType_)
+    : MapRendererBaseResource(owner_, type_)
     , KeyedEntriesCollectionEntryWithState(collection_, key_)
 {
 }
@@ -34,7 +33,7 @@ OsmAnd::MapRendererResourceState OsmAnd::MapRendererBaseKeyedResource::getState(
 
 void OsmAnd::MapRendererBaseKeyedResource::setState(const MapRendererResourceState newState)
 {
-    return BaseKeyedEntriesCollectionEntryWithState::setState(newState);
+    BaseKeyedEntriesCollectionEntryWithState::setState(newState);
 }
 
 bool OsmAnd::MapRendererBaseKeyedResource::setStateIf(

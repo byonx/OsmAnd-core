@@ -6,30 +6,19 @@
 #include <OsmAndCore/QtExtensions.h>
 
 #include <OsmAndCore.h>
+#include <OsmAndCore/Common.h>
+#include <OsmAndCore/Callable.h>
+#include <OsmAndCore/Metrics.h>
 
 namespace OsmAnd
 {
+    class IQueryController;
+
     class OSMAND_CORE_API IMapDataProvider
     {
         Q_DISABLE_COPY_AND_MOVE(IMapDataProvider);
+
     public:
-        enum class SourceType
-        {
-            Unknown = -1,
-
-            LocalDirect,
-            LocalGenerated,
-            NetworkDirect,
-            NetworkGenerated,
-            MiscDirect,
-            MiscGenerated,
-
-            __LAST
-        };
-        enum {
-            SourceTypesCount = static_cast<int>(SourceType::__LAST)
-        };
-
         struct OSMAND_CORE_API RetainableCacheMetadata
         {
             virtual ~RetainableCacheMetadata() = 0;
@@ -50,13 +39,44 @@ namespace OsmAnd
             std::shared_ptr<const RetainableCacheMetadata> retainableCacheMetadata;
         };
 
+        struct OSMAND_CORE_API Request
+        {
+            Request();
+            virtual ~Request();
+
+            std::shared_ptr<const IQueryController> queryController;
+
+            virtual std::shared_ptr<Request> clone() const;
+            static void copy(Request& dst, const Request& src);
+
+        protected:
+            Request(const Request& that);
+        };
+
+        OSMAND_CALLABLE(ObtainDataAsyncCallback,
+            void,
+            const IMapDataProvider* const provider,
+            const bool requestSucceeded,
+            const std::shared_ptr<Data>& data,
+            const std::shared_ptr<Metric>& metric);
+
     private:
     protected:
         IMapDataProvider();
     public:
         virtual ~IMapDataProvider();
 
-        virtual SourceType getSourceType() const = 0;
+        virtual bool supportsNaturalObtainData() const = 0;
+        virtual bool obtainData(
+            const Request& request,
+            std::shared_ptr<Data>& outData,
+            std::shared_ptr<Metric>* const pOutMetric = nullptr) = 0;
+
+        virtual bool supportsNaturalObtainDataAsync() const = 0;
+        virtual void obtainDataAsync(
+            const Request& request,
+            const ObtainDataAsyncCallback callback,
+            const bool collectMetric = false) = 0;
     };
 }
 

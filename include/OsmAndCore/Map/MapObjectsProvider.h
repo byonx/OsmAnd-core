@@ -31,14 +31,17 @@ namespace OsmAnd
         virtual ZoomLevel getMinZoom() const;
         virtual ZoomLevel getMaxZoom() const;
 
+        virtual bool supportsNaturalObtainData() const Q_DECL_OVERRIDE;
         virtual bool obtainData(
-            const TileId tileId,
-            const ZoomLevel zoom,
-            std::shared_ptr<Data>& outTiledData,
-            std::shared_ptr<Metric>* pOutMetric = nullptr,
-            const IQueryController* const queryController = nullptr);
+            const IMapDataProvider::Request& request,
+            std::shared_ptr<IMapDataProvider::Data>& outData,
+            std::shared_ptr<Metric>* const pOutMetric = nullptr) Q_DECL_OVERRIDE;
 
-        virtual SourceType getSourceType() const;
+        virtual bool supportsNaturalObtainDataAsync() const Q_DECL_OVERRIDE;
+        virtual void obtainDataAsync(
+            const IMapDataProvider::Request& request,
+            const IMapDataProvider::ObtainDataAsyncCallback callback,
+            const bool collectMetric = false) Q_DECL_OVERRIDE;
     };
 }
 

@@ -6,6 +6,7 @@
 #   define OSMAND_PERFORMANCE_METRICS 0
 #endif // !defined(OSMAND_PERFORMANCE_METRICS)
 
+#include "MapDataProviderHelpers.h"
 #include "ObfsCollection.h"
 #include "ObfDataInterface.h"
 #include "ObfMapSectionInfo.h"
@@ -32,11 +33,32 @@ OsmAnd::ObfMapObjectsProvider_P::~ObfMapObjectsProvider_P()
 }
 
 bool OsmAnd::ObfMapObjectsProvider_P::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<ObfMapObjectsProvider::Data>& outTiledData,
-    ObfMapObjectsProvider_Metrics::Metric_obtainData* const metric_,
-    const IQueryController* const queryController)
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric)
+{
+    if (pOutMetric)
+    {
+        if (!pOutMetric->get() || !dynamic_cast<ObfMapObjectsProvider_Metrics::Metric_obtainData*>(pOutMetric->get()))
+            pOutMetric->reset(new ObfMapObjectsProvider_Metrics::Metric_obtainData());
+        else
+            pOutMetric->get()->reset();
+    }
+
+    std::shared_ptr<ObfMapObjectsProvider::Data> data;
+    const auto result = obtainTiledObfMapObjects(
+        MapDataProviderHelpers::castRequest<ObfMapObjectsProvider::Request>(request),
+        data,
+        pOutMetric ? static_cast<ObfMapObjectsProvider_Metrics::Metric_obtainData*>(pOutMetric->get()) : nullptr);
+    outData = data;
+
+    return result;
+}
+
+bool OsmAnd::ObfMapObjectsProvider_P::obtainTiledObfMapObjects(
+    const ObfMapObjectsProvider::Request& request,
+    std::shared_ptr<ObfMapObjectsProvider::Data>& outMapObjects,
+    ObfMapObjectsProvider_Metrics::Metric_obtainData* const metric_)
 {
 #if OSMAND_PERFORMANCE_METRICS
     ObfMapObjectsProvider_Metrics::Metric_obtainData localMetric;
@@ -50,7 +72,7 @@ bool OsmAnd::ObfMapObjectsProvider_P::obtainData(
     for (;;)
     {
         // Try to obtain previous instance of tile
-        _tileReferences.obtainOrAllocateEntry(tileEntry, tileId, zoom,
+        _tileReferences.obtainOrAllocateEntry(tileEntry, request.tileId, request.zoom,
             []
             (const TiledEntriesCollection<TileEntry>& collection, const TileId tileId, const ZoomLevel zoom) -> TileEntry*
             {
@@ -72,15 +94,15 @@ bool OsmAnd::ObfMapObjectsProvider_P::obtainData(
         }
 
         // Try to lock tile reference
-        outTiledData = tileEntry->dataWeakRef.lock();
+        outMapObjects = tileEntry->dataWeakRef.lock();
 
         // If successfully locked, just return it
-        if (outTiledData)
+        if (outMapObjects)
             return true;
 
         // Otherwise consider this tile entry as expired, remove it from collection (it's safe to do that right now)
         // This will enable creation of new entry on next loop cycle
-        _tileReferences.removeEntry(tileId, zoom);
+        _tileReferences.removeEntry(request.tileId, request.zoom);
         tileEntry.reset();
     }
 
@@ -93,14 +115,15 @@ bool OsmAnd::ObfMapObjectsProvider_P::obtainData(
         );
 
     // Get bounding box that covers this tile
-    const auto tileBBox31 = Utilities::tileBoundingBox31(tileId, zoom);
+    const auto tileBBox31 = Utilities::tileBoundingBox31(request.tileId, request.zoom);
+    const auto zoom = request.zoom;
 
     // Obtain OBF data interface
     const Stopwatch obtainObfInterfaceStopwatch(metric != nullptr);
     const auto& dataInterface = owner->obfsCollection->obtainDataInterface(
         &tileBBox31,
-        zoom,
-        zoom,
+        request.zoom,
+        request.zoom,
         ObfDataTypesMask().set(ObfDataType::Map).set(ObfDataType::Routing));
     if (metric)
         metric->elapsedTimeForObtainingObfInterface += obtainObfInterfaceStopwatch.elapsed();
@@ -300,12 +323,12 @@ bool OsmAnd::ObfMapObjectsProvider_P::obtainData(
         dataInterface->loadBinaryMapObjects(
             &loadedBinaryMapObjects,
             &tileSurfaceType,
-            zoom,
+            request.zoom,
             &tileBBox31,
             binaryMapObjectsFilteringFunctor,
             _binaryMapObjectsDataBlocksCache.get(),
             &referencedBinaryMapObjectsDataBlocks,
-            nullptr,// query controller
+            nullptr,// query queryController
             loadMapObjectsMetric.get());
     }
     else if (owner->mode == ObfMapObjectsProvider::Mode::OnlyRoads)
@@ -325,7 +348,7 @@ bool OsmAnd::ObfMapObjectsProvider_P::obtainData(
             nullptr,// visitor
             _roadsDataBlocksCache.get(),
             &referencedRoadsDataBlocks,
-            nullptr,// query controller
+            nullptr,// query queryController
             loadRoadsMetric.get());
     }
     else if (owner->mode == ObfMapObjectsProvider::Mode::BinaryMapObjectsAndRoads)
@@ -347,7 +370,7 @@ bool OsmAnd::ObfMapObjectsProvider_P::obtainData(
             &loadedBinaryMapObjects,
             &loadedRoads,
             &tileSurfaceType,
-            zoom,
+            request.zoom,
             &tileBBox31,
             binaryMapObjectsFilteringFunctor,
             _binaryMapObjectsDataBlocksCache.get(),
@@ -355,7 +378,7 @@ bool OsmAnd::ObfMapObjectsProvider_P::obtainData(
             roadsFilteringFunctor,
             _roadsDataBlocksCache.get(),
             &referencedRoadsDataBlocks,
-            nullptr,// query controller
+            nullptr,// query queryController
             loadMapObjectsMetric.get(),
             loadRoadsMetric.get());
     }
@@ -424,12 +447,12 @@ bool OsmAnd::ObfMapObjectsProvider_P::obtainData(
 
     // Create tile
     const std::shared_ptr<IMapObjectsProvider::Data> newTile(new IMapObjectsProvider::Data(
-        tileId,
-        zoom,
+        request.tileId,
+        request.zoom,
         tileSurfaceType,
         allMapObjects,
         new RetainableCacheMetadata(
-            zoom,
+            request.zoom,
             _link,
             tileEntry,
             _binaryMapObjectsDataBlocksCache,
@@ -440,7 +463,7 @@ bool OsmAnd::ObfMapObjectsProvider_P::obtainData(
             referencedRoads + loadedSharedRoads)));
 
     // Publish new tile
-    outTiledData = newTile;
+    outMapObjects = newTile;
 
     // Store weak reference to new tile and mark it as 'Loaded'
     tileEntry->dataWeakRef = newTile;

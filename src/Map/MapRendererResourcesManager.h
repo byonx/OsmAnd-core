@@ -6,12 +6,14 @@
 #include <array>
 
 #include "QtExtensions.h"
+#include "ignore_warnings_on_external_includes.h"
 #include <QList>
 #include <QHash>
 #include <QSet>
-#include <QThreadPool>
 #include <QReadWriteLock>
 #include <QWaitCondition>
+#include <QVector>
+#include "restore_internal_warnings.h"
 
 #include "OsmAndCore.h"
 #include "MapRendererTypes_private.h"
@@ -33,7 +35,10 @@
 #include "TiledEntriesCollection.h"
 #include "KeyedEntriesCollection.h"
 #include "SharedResourcesContainer.h"
-#include "Concurrent.h"
+#include "Thread.h"
+#include "TaskHost.h"
+#include "HostedTask.h"
+#include "WorkerPool.h"
 #include "IQueryController.h"
 
 namespace OsmAnd
@@ -50,30 +55,41 @@ namespace OsmAnd
         Q_DISABLE_COPY_AND_MOVE(MapRendererResourcesManager);
 
     public:
-        typedef std::array< QList< std::shared_ptr<MapRendererBaseResourcesCollection> >, MapRendererResourceTypesCount > ResourcesStorage;
+        typedef std::array<
+            QList< std::shared_ptr<MapRendererBaseResourcesCollection> >,
+            MapRendererResourceTypesCount > ResourcesStorage;
 
     private:
         // Resource-requests related:
         const Concurrent::TaskHost::Bridge _taskHostBridge;
-        std::array<QThreadPool, IMapDataProvider::SourceTypesCount> _resourcesRequestWorkersPools;
-        mutable QAtomicInt _resourcesRequestTasksCounter;
+        Concurrent::WorkerPool _resourcesRequestWorkerPool;
+        QAtomicInt _resourcesRequestTasksCounter;
         class ResourceRequestTask : public Concurrent::HostedTask
         {
             Q_DISABLE_COPY_AND_MOVE(ResourceRequestTask);
         private:
+            void execute();
+            void postExecute(const bool wasCancelled);
+
+            static void executeWrapper(Task* const task);
+            static void postExecuteWrapper(Task* const task, const bool wasCancelled);
         protected:
         public:
             ResourceRequestTask(
                 const std::shared_ptr<MapRendererBaseResource>& requestedResource,
-                const Concurrent::TaskHost::Bridge& bridge,
-                ExecuteSignature executeMethod,
-                PreExecuteSignature preExecuteMethod = nullptr,
-                PostExecuteSignature postExecuteMethod = nullptr);
+                const Concurrent::TaskHost::Bridge& bridge);
             virtual ~ResourceRequestTask();
 
-            const MapRendererResourcesManager* const manager;
+            MapRendererResourcesManager* const manager;
             const std::shared_ptr<MapRendererBaseResource> requestedResource;
+
+            int64_t calculatePriority(
+                const TileId centerTileId,
+                const QVector<TileId>& activeTiles,
+                const ZoomLevel activeZoom) const;
         };
+        void setResourceWorkerThreadsLimit(const unsigned int limit);
+        void resetResourceWorkerThreadsLimit();
 
         // Each provider has a binded resource collection, and these are bindings:
         struct Binding
@@ -82,7 +98,12 @@ namespace OsmAnd
             QHash< std::shared_ptr<MapRendererBaseResourcesCollection>, std::shared_ptr<IMapDataProvider> > collectionsToProviders;
         };
         std::array< Binding, MapRendererResourceTypesCount > _bindings;
-        bool obtainProviderFor(MapRendererBaseResourcesCollection* const resourcesRef, std::shared_ptr<IMapDataProvider>& provider) const;
+        bool obtainProviderFor(
+            MapRendererBaseResourcesCollection* const resourcesRef,
+            std::shared_ptr<IMapDataProvider>& provider) const;
+        bool noLockObtainProviderFor(
+            MapRendererBaseResourcesCollection* const resourcesRef,
+            std::shared_ptr<IMapDataProvider>& provider) const;
         bool isDataSourceAvailableFor(const std::shared_ptr<MapRendererBaseResourcesCollection>& collection) const;
 
         // Resources storages:
@@ -90,6 +111,9 @@ namespace OsmAnd
         QList< std::shared_ptr<MapRendererBaseResourcesCollection> > _pendingRemovalResourcesCollections;
         ResourcesStorage _storageByType;
         QList< std::shared_ptr<MapRendererBaseResourcesCollection> > safeGetAllResourcesCollections() const;
+        void safeGetAllResourcesCollections(
+            QList< std::shared_ptr<MapRendererBaseResourcesCollection> >& outPendingRemovalResourcesCollections,
+            QList< std::shared_ptr<MapRendererBaseResourcesCollection> >& outOtherResourcesCollections) const;
 
         // Symbols-related:
         void publishMapSymbol(
@@ -113,23 +137,47 @@ namespace OsmAnd
         bool validateResourcesOfType(const MapRendererResourceType type);
 
         // Resources management:
-        QSet<TileId> _activeTiles;
+        TileId _centerTileId;
+        QVector<TileId> _activeTiles;
         ZoomLevel _activeZoom;
+        QVector<QRunnable*> _requestedResourcesTasks;
         bool updatesPresent() const;
         bool checkForUpdatesAndApply() const;
-        void updateResources(const QSet<TileId>& tiles, const ZoomLevel zoom);
-        void requestNeededResources(const QSet<TileId>& activeTiles, const ZoomLevel activeZoom);
-        void requestNeededTiledResources(
-            const IMapDataProvider::SourceType sourceType,
-            const std::shared_ptr<MapRendererTiledResourcesCollection>& resourcesCollection,
-            const QSet<TileId>& activeTiles,
+        void updateResources(
+            const TileId centerTileId,
+            const QVector<TileId>& tiles,
+            const ZoomLevel zoom);
+        void requestNeededResources(
+            const QList< std::shared_ptr<MapRendererBaseResourcesCollection> >& resourcesCollections,
+            const TileId centerTileId,
+            const QVector<TileId>& activeTiles,
             const ZoomLevel activeZoom);
+        void requestNeededResources(
+            const std::shared_ptr<MapRendererBaseResourcesCollection>& resourcesCollection,
+            const QVector<TileId>& tiles,
+            const ZoomLevel zoom);
+        void requestNeededTiledResources(
+            const std::shared_ptr<MapRendererTiledResourcesCollection>& resourcesCollection,
+            const QVector<TileId>& tiles,
+            const ZoomLevel zoom);
         void requestNeededKeyedResources(
-            const IMapDataProvider::SourceType sourceType,
             const std::shared_ptr<MapRendererKeyedResourcesCollection>& resourcesCollection);
-        void requestNeededResource(const std::shared_ptr<MapRendererBaseResource>& resource);
-        void cleanupJunkResources(const QSet<TileId>& activeTiles, const ZoomLevel activeZoom);
-        bool cleanupJunkResource(const std::shared_ptr<MapRendererBaseResource>& resource, bool& needsResourcesUploadOrUnload);
+        void requestNeededResource(
+            const std::shared_ptr<MapRendererBaseResource>& resource);
+        bool beginResourceRequestProcessing(const std::shared_ptr<MapRendererBaseResource>& resource);
+        void endResourceRequestProcessing(
+            const std::shared_ptr<MapRendererBaseResource>& resource,
+            const bool requestSucceeded,
+            const bool dataAvailable);
+        void processResourceRequestCancellation(const std::shared_ptr<MapRendererBaseResource>& resource);
+        void cleanupJunkResources(
+            const QList< std::shared_ptr<MapRendererBaseResourcesCollection> >& pendingRemovalResourcesCollections,
+            const QList< std::shared_ptr<MapRendererBaseResourcesCollection> >& resourcesCollections,
+            const QVector<TileId>& activeTiles,
+            const ZoomLevel activeZoom);
+        bool cleanupJunkResource(
+            const std::shared_ptr<MapRendererBaseResource>& resource,
+            bool& needsResourcesUploadOrUnload);
         unsigned int unloadResources();
         void unloadResourcesFrom(
             const std::shared_ptr<MapRendererBaseResourcesCollection>& collection,
@@ -173,8 +221,12 @@ namespace OsmAnd
             const AlphaChannelPresence alphaChannelPresence) const;
         void releaseGpuUploadableDataFrom(const std::shared_ptr<MapSymbol>& mapSymbol);
 
-        void updateBindings(const MapRendererState& state, const MapRendererStateChanges updatedMask);
-        void updateActiveZone(const QSet<TileId>& tiles, const ZoomLevel zoom);
+        bool updateBindings(const MapRendererState& state, const MapRendererStateChanges updatedMask);
+        void updateElevationDataProviderBindings(const MapRendererState& state);
+        void updateMapLayerProviderBindings(const MapRendererState& state);
+        void updateSymbolProviderBindings(const MapRendererState& state);
+
+        void updateActiveZone(const TileId centerTileId, const QVector<TileId>& tiles, const ZoomLevel zoom);
         void syncResourcesInGPU(
             const unsigned int limitUploads = 0u,
             bool* const outMoreUploadsThanLimitAvailable = nullptr,

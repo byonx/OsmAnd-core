@@ -4,22 +4,25 @@
 #include "stdlib_common.h"
 
 #include "QtExtensions.h"
+#include "ignore_warnings_on_external_includes.h"
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include "restore_internal_warnings.h"
 
 #include "ignore_warnings_on_external_includes.h"
 #include <google/protobuf/io/coded_stream.h>
 #include "restore_internal_warnings.h"
 
 #include "OsmAndCore.h"
+#include "PointsAndAreas.h"
 
 namespace OsmAnd
 {
     class ObfSectionInfo;
     class ObfReader;
 
-    namespace gpb = google::protobuf;
+    namespace gpb = google::obf_protobuf;
 
     struct ObfReaderUtilities Q_DECL_FINAL
     {
@@ -35,6 +38,7 @@ namespace OsmAnd
             QVector<uint32_t>& outValues,
             const QString& keysPrefix = QString::null,
             const int matchedCharactersCount = 0);
+        static void readTileBox(gpb::io::CodedInputStream* cis, AreaI& outArea);
 
         static void skipUnknownField(gpb::io::CodedInputStream* cis, int tag);
         static void skipBlockWithLength(gpb::io::CodedInputStream* cis);

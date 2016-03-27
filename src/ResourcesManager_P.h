@@ -19,7 +19,6 @@
 #include "IOnlineTileSources.h"
 #include "ObfDataInterface.h"
 #include "IMapStylesCollection.h"
-#include "IMapStylesPresetsCollection.h"
 #include "IObfsCollection.h"
 
 namespace OsmAnd
@@ -38,7 +37,6 @@ namespace OsmAnd
 
         typedef ResourcesManager::ObfMetadata ObfMetadata;
         typedef ResourcesManager::MapStyleMetadata MapStyleMetadata;
-        typedef ResourcesManager::MapStylesPresetsMetadata MapStylesPresetsMetadata;
         typedef ResourcesManager::OnlineTileSourcesMetadata OnlineTileSourcesMetadata;
 
     private:
@@ -61,33 +59,57 @@ namespace OsmAnd
             const bool isUnmanagedStorage,
             QHash< QString, std::shared_ptr<const LocalResource> >& outResult) const;
 
+        void loadLocalResourcesFromPath_Obf(
+            const QString& storagePath,
+            QHash< QString, std::shared_ptr<const LocalResource> > &outResult,
+            const QString& filenameMask,
+            const ResourceType resourceType) const;
+        void loadLocalResourcesFromPath_Obf(
+            const QString& storagePath,
+            QHash< QString, std::shared_ptr<const LocalResource> > &outResult) const;
+        void loadLocalResourcesFromPath_SQLiteDB(
+            const QString& storagePath,
+            QHash< QString, std::shared_ptr<const LocalResource> > &outResult,
+            const QString& filenameMask,
+            const ResourceType resourceType) const;
+        void loadLocalResourcesFromPath_SQLiteDB(
+            const QString& storagePath,
+            QHash< QString, std::shared_ptr<const LocalResource> > &outResult) const;
+        void loadLocalResourcesFromPath_OnlineTileSourcesResource(
+            const QString& storagePath,
+            QHash< QString, std::shared_ptr<const LocalResource> > &outResult) const;
+        void loadLocalResourcesFromPath_MapStyleResource(
+            const QString& storagePath,
+            QHash< QString, std::shared_ptr<const LocalResource> > &outResult) const;
+        void loadLocalResourcesFromPath_VoicePack(
+            const QString& storagePath,
+            QHash< QString, std::shared_ptr<const LocalResource> > &outResult) const;
+
         std::shared_ptr<const ObfFile> _miniBasemapObfFile;
 
         mutable QReadWriteLock _resourcesInRepositoryLock;
         mutable QHash< QString, std::shared_ptr<const ResourceInRepository> > _resourcesInRepository;
         mutable bool _resourcesInRepositoryLoaded;
-        bool parseRepository(QXmlStreamReader& xmlReader, QList< std::shared_ptr<const ResourceInRepository> >& repository) const;
+        bool parseRepository(
+            QXmlStreamReader& xmlReader,
+            QList< std::shared_ptr<const ResourceInRepository> >& repository) const;
 
         mutable WebClient _webClient;
 
-        bool uninstallMapRegion(const std::shared_ptr<const InstalledResource>& resource);
-        bool uninstallRoadMapRegion(const std::shared_ptr<const InstalledResource>& resource);
-        bool uninstallSrtmMapRegion(const std::shared_ptr<const InstalledResource>& resource);
+        bool uninstallObf(const std::shared_ptr<const InstalledResource>& resource);
+        bool uninstallSQLiteDB(const std::shared_ptr<const InstalledResource>& resource);
         bool uninstallVoicePack(const std::shared_ptr<const InstalledResource>& resource);
 
-        bool installMapRegionFromFile(
+        bool installObfFromFile(
             const QString& id,
             const QString& filePath,
+            const ResourceType resourceType,
             std::shared_ptr<const InstalledResource>& outResource,
             const QString& localPath = QString::null);
-        bool installRoadMapRegionFromFile(
+        bool installSQLiteDBFromFile(
             const QString& id,
             const QString& filePath,
-            std::shared_ptr<const InstalledResource>& outResource,
-            const QString& localPath = QString::null);
-        bool installSrtmMapRegionFromFile(
-            const QString& id,
-            const QString& filePath,
+            const ResourceType resourceType,
             std::shared_ptr<const InstalledResource>& outResource,
             const QString& localPath = QString::null);
         bool installVoicePackFromFile(
@@ -96,9 +118,8 @@ namespace OsmAnd
             std::shared_ptr<const InstalledResource>& outResource,
             const QString& localPath = QString::null);
 
-        bool updateMapRegionFromFile(std::shared_ptr<const InstalledResource>& resource, const QString& filePath);
-        bool updateRoadMapRegionFromFile(std::shared_ptr<const InstalledResource>& resource, const QString& filePath);
-        bool updateSrtmMapRegionFromFile(std::shared_ptr<const InstalledResource>& resource, const QString& filePath);
+        bool updateObfFromFile(std::shared_ptr<const InstalledResource>& resource, const QString& filePath);
+        bool updateSQLiteDBFromFile(std::shared_ptr<const InstalledResource>& resource, const QString& filePath);
         bool updateVoicePackFromFile(std::shared_ptr<const InstalledResource>& resource, const QString& filePath);
 
         class OnlineTileSourcesProxy : public IOnlineTileSources
@@ -172,23 +193,6 @@ namespace OsmAnd
 
         friend class OsmAnd::ResourcesManager_P;
         };
-
-        class MapStylesPresetsCollectionProxy : public IMapStylesPresetsCollection
-        {
-        private:
-        protected:
-            MapStylesPresetsCollectionProxy(ResourcesManager_P* owner);
-        public:
-            virtual ~MapStylesPresetsCollectionProxy();
-
-            ResourcesManager_P* const owner;
-
-            virtual QList< std::shared_ptr<const MapStylePreset> > getCollection() const;
-            virtual QList< std::shared_ptr<const MapStylePreset> > getCollectionFor(const QString& styleName) const;
-            virtual std::shared_ptr<const MapStylePreset> getPreset(const QString& styleName, const QString& presetName) const;
-
-        friend class OsmAnd::ResourcesManager_P;
-        };
     protected:
         ResourcesManager_P(ResourcesManager* owner);
 
@@ -226,7 +230,9 @@ namespace OsmAnd
         bool uninstallResource(const QString& id);
         bool installFromFile(const QString& filePath, const ResourceType resourceType);
         bool installFromFile(const QString& id, const QString& filePath, const ResourceType resourceType);
-        bool installFromRepository(const QString& id, const WebClient::RequestProgressCallbackSignature downloadProgressCallback);
+        bool installFromRepository(
+            const QString& id,
+            const WebClient::RequestProgressCallbackSignature downloadProgressCallback);
         bool installFromRepository(const QString& id, const QString& filePath);
 
         // Updates:
@@ -234,12 +240,13 @@ namespace OsmAnd
         QHash< QString, std::shared_ptr<const LocalResource> > getOutdatedInstalledResources() const;
         bool updateFromFile(const QString& filePath);
         bool updateFromFile(const QString& id, const QString& filePath);
-        bool updateFromRepository(const QString& id, const WebClient::RequestProgressCallbackSignature downloadProgressCallback);
+        bool updateFromRepository(
+            const QString& id,
+            const WebClient::RequestProgressCallbackSignature downloadProgressCallback);
         bool updateFromRepository(const QString& id, const QString& filePath);
 
         const std::shared_ptr<const IOnlineTileSources> onlineTileSources;
         const std::shared_ptr<const IMapStylesCollection> mapStylesCollection;
-        const std::shared_ptr<const IMapStylesPresetsCollection> mapStylesPresetsCollection;
         const std::shared_ptr<const IObfsCollection> obfsCollection;
 
     friend class OsmAnd::ResourcesManager;

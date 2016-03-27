@@ -22,10 +22,8 @@ namespace OsmAnd
 {
     class IOnlineTileSources;
     class IMapStylesCollection;
-    class IMapStylesPresetsCollection;
     class IObfsCollection;
     class UnresolvedMapStyle;
-    class MapStylesPresetsCollection;
     class OnlineTileSources;
 
     class ResourcesManager_P;
@@ -40,12 +38,13 @@ namespace OsmAnd
             MapRegion,
             RoadMapRegion,
             SrtmMapRegion,
+            WikiMapRegion,
+            HillshadeRegion,
+            HeightmapRegion,
             VoicePack,
             MapStyle,
             MapStylesPresets,
             OnlineTileSources,
-            //HillshadeRegion,
-            //HeightmapRegion
         };
 
         enum class ResourceOrigin
@@ -207,17 +206,6 @@ namespace OsmAnd
             Q_DISABLE_COPY_AND_MOVE(MapStyleMetadata);
         };
 
-        struct OSMAND_CORE_API MapStylesPresetsMetadata : public Resource::Metadata
-        {
-            MapStylesPresetsMetadata(const std::shared_ptr<const MapStylesPresetsCollection>& presets);
-            virtual ~MapStylesPresetsMetadata();
-
-            const std::shared_ptr<const MapStylesPresetsCollection> presets;
-
-        private:
-            Q_DISABLE_COPY_AND_MOVE(MapStylesPresetsMetadata);
-        };
-
         struct OSMAND_CORE_API OnlineTileSourcesMetadata : public Resource::Metadata
         {
             OnlineTileSourcesMetadata(const std::shared_ptr<const OnlineTileSources>& sources);
@@ -274,7 +262,9 @@ namespace OsmAnd
         bool uninstallResource(const QString& id);
         bool installFromFile(const QString& filePath, const ResourceType resourceType);
         bool installFromFile(const QString& id, const QString& filePath, const ResourceType resourceType);
-        bool installFromRepository(const QString& id, const WebClient::RequestProgressCallbackSignature downloadProgressCallback = nullptr);
+        bool installFromRepository(
+            const QString& id,
+            const WebClient::RequestProgressCallbackSignature downloadProgressCallback = nullptr);
         bool installFromRepository(const QString& id, const QString& filePath);
 
         // Updates:
@@ -282,7 +272,9 @@ namespace OsmAnd
         QHash< QString, std::shared_ptr<const LocalResource> > getOutdatedInstalledResources() const;
         bool updateFromFile(const QString& filePath);
         bool updateFromFile(const QString& id, const QString& filePath);
-        bool updateFromRepository(const QString& id, const WebClient::RequestProgressCallbackSignature downloadProgressCallback = nullptr);
+        bool updateFromRepository(
+            const QString& id,
+            const WebClient::RequestProgressCallbackSignature downloadProgressCallback = nullptr);
         bool updateFromRepository(const QString& id, const QString& filePath);
 
         // Observables
@@ -298,7 +290,6 @@ namespace OsmAnd
 
         const std::shared_ptr<const IOnlineTileSources>& onlineTileSources;
         const std::shared_ptr<const IMapStylesCollection>& mapStylesCollection;
-        const std::shared_ptr<const IMapStylesPresetsCollection>& mapStylesPresetsCollection;
         const std::shared_ptr<const IObfsCollection>& obfsCollection;
     };
 }

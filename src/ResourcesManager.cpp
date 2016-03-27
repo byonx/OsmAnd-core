@@ -18,11 +18,12 @@ OsmAnd::ResourcesManager::ResourcesManager(
     , userStoragePath(userStoragePath_)
     , readonlyExternalStoragePaths(readonlyExternalStoragePaths_)
     , miniBasemapFilename(miniBasemapFilename_)
-    , localTemporaryPath(!localTemporaryPath_.isNull() ? localTemporaryPath_ : QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+    , localTemporaryPath(!localTemporaryPath_.isNull()
+        ? localTemporaryPath_
+        : QStandardPaths::writableLocation(QStandardPaths::TempLocation))
     , repositoryBaseUrl(repositoryBaseUrl_)
     , onlineTileSources(_p->onlineTileSources)
     , mapStylesCollection(_p->mapStylesCollection)
-    , mapStylesPresetsCollection(_p->mapStylesPresetsCollection)
     , obfsCollection(_p->obfsCollection)
 {
     QDir(localStoragePath).mkpath(QLatin1String("."));
@@ -47,12 +48,14 @@ std::shared_ptr<const OsmAnd::ResourcesManager::Resource> OsmAnd::ResourcesManag
     return _p->getResource(id);
 }
 
-QHash< QString, std::shared_ptr<const OsmAnd::ResourcesManager::BuiltinResource> > OsmAnd::ResourcesManager::getBuiltInResources() const
+QHash< QString, std::shared_ptr<const OsmAnd::ResourcesManager::BuiltinResource> >
+OsmAnd::ResourcesManager::getBuiltInResources() const
 {
     return _p->getBuiltInResources();
 }
 
-std::shared_ptr<const OsmAnd::ResourcesManager::BuiltinResource> OsmAnd::ResourcesManager::getBuiltInResource(const QString& id) const
+std::shared_ptr<const OsmAnd::ResourcesManager::BuiltinResource>
+OsmAnd::ResourcesManager::getBuiltInResource(const QString& id) const
 {
     return _p->getBuiltInResource(id);
 }
@@ -67,12 +70,14 @@ bool OsmAnd::ResourcesManager::rescanUnmanagedStoragePaths() const
     return _p->rescanUnmanagedStoragePaths();
 }
 
-QHash< QString, std::shared_ptr<const OsmAnd::ResourcesManager::LocalResource> > OsmAnd::ResourcesManager::getLocalResources() const
+QHash< QString, std::shared_ptr<const OsmAnd::ResourcesManager::LocalResource> >
+OsmAnd::ResourcesManager::getLocalResources() const
 {
     return _p->getLocalResources();
 }
 
-std::shared_ptr<const OsmAnd::ResourcesManager::LocalResource> OsmAnd::ResourcesManager::getLocalResource(const QString& id) const
+std::shared_ptr<const OsmAnd::ResourcesManager::LocalResource> OsmAnd::ResourcesManager::getLocalResource(
+    const QString& id) const
 {
     return _p->getLocalResource(id);
 }
@@ -92,12 +97,14 @@ bool OsmAnd::ResourcesManager::updateRepository() const
     return _p->updateRepository();
 }
 
-QHash< QString, std::shared_ptr<const OsmAnd::ResourcesManager::ResourceInRepository> > OsmAnd::ResourcesManager::getResourcesInRepository() const
+QHash< QString, std::shared_ptr<const OsmAnd::ResourcesManager::ResourceInRepository> >
+OsmAnd::ResourcesManager::getResourcesInRepository() const
 {
     return _p->getResourcesInRepository();
 }
 
-std::shared_ptr<const OsmAnd::ResourcesManager::ResourceInRepository> OsmAnd::ResourcesManager::getResourceInRepository(const QString& id) const
+std::shared_ptr<const OsmAnd::ResourcesManager::ResourceInRepository> OsmAnd::ResourcesManager::getResourceInRepository(
+    const QString& id) const
 {
     return _p->getResourceInRepository(id);
 }
@@ -127,7 +134,9 @@ bool OsmAnd::ResourcesManager::installFromFile(const QString& id, const QString&
     return _p->installFromFile(id, filePath, resourceType);
 }
 
-bool OsmAnd::ResourcesManager::installFromRepository(const QString& id, const WebClient::RequestProgressCallbackSignature downloadProgressCallback /*= nullptr*/)
+bool OsmAnd::ResourcesManager::installFromRepository(
+    const QString& id,
+    const WebClient::RequestProgressCallbackSignature downloadProgressCallback /*= nullptr*/)
 {
     return _p->installFromRepository(id, downloadProgressCallback);
 }
@@ -142,7 +151,8 @@ bool OsmAnd::ResourcesManager::isInstalledResourceOutdated(const QString& id) co
     return _p->isInstalledResourceOutdated(id);
 }
 
-QHash< QString, std::shared_ptr<const OsmAnd::ResourcesManager::LocalResource> > OsmAnd::ResourcesManager::getOutdatedInstalledResources() const
+QHash< QString, std::shared_ptr<const OsmAnd::ResourcesManager::LocalResource> >
+OsmAnd::ResourcesManager::getOutdatedInstalledResources() const
 {
     return _p->getOutdatedInstalledResources();
 }
@@ -157,7 +167,9 @@ bool OsmAnd::ResourcesManager::updateFromFile(const QString& id, const QString& 
     return _p->updateFromFile(id, filePath);
 }
 
-bool OsmAnd::ResourcesManager::updateFromRepository(const QString& id, const WebClient::RequestProgressCallbackSignature downloadProgressCallback /*= nullptr*/)
+bool OsmAnd::ResourcesManager::updateFromRepository(
+    const QString& id,
+    const WebClient::RequestProgressCallbackSignature downloadProgressCallback /*= nullptr*/)
 {
     return _p->updateFromRepository(id, downloadProgressCallback);
 }
@@ -288,16 +300,8 @@ OsmAnd::ResourcesManager::MapStyleMetadata::~MapStyleMetadata()
 {
 }
 
-OsmAnd::ResourcesManager::MapStylesPresetsMetadata::MapStylesPresetsMetadata(const std::shared_ptr<const MapStylesPresetsCollection>& presets_)
-    : presets(presets_)
-{
-}
-
-OsmAnd::ResourcesManager::MapStylesPresetsMetadata::~MapStylesPresetsMetadata()
-{
-}
-
-OsmAnd::ResourcesManager::OnlineTileSourcesMetadata::OnlineTileSourcesMetadata(const std::shared_ptr<const OnlineTileSources>& sources_)
+OsmAnd::ResourcesManager::OnlineTileSourcesMetadata::OnlineTileSourcesMetadata(
+    const std::shared_ptr<const OnlineTileSources>& sources_)
     : sources(sources_)
 {
 }

@@ -46,7 +46,7 @@ namespace OsmAndTools
             float mapScale;
             float symbolsScale;
             QString locale;
-            QString styleDumpFilename;
+            bool metrics;
             bool verbose;
 
             static bool parseFromCommandLineArguments(
@@ -55,7 +55,9 @@ namespace OsmAndTools
                 QString& outError);
         };
 
-        typedef QHash< std::shared_ptr<const OsmAnd::MapObject>, std::shared_ptr<const OsmAnd::MapPrimitiviser::PrimitivesGroup> > EvaluatedMapObjects;
+        typedef QHash<
+            std::shared_ptr<const OsmAnd::MapObject>,
+            std::shared_ptr<const OsmAnd::MapPrimitiviser::PrimitivesGroup> > EvaluatedMapObjects;
 
     private:
 #if defined(_UNICODE) || defined(UNICODE)

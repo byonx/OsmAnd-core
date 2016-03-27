@@ -2,6 +2,7 @@
 #include "ObfMapObjectsProvider_P.h"
 
 #include "ObfMapObjectsProvider_Metrics.h"
+#include "MapDataProviderHelpers.h"
 
 OsmAnd::ObfMapObjectsProvider::ObfMapObjectsProvider(
     const std::shared_ptr<const IObfsCollection>& obfsCollection_,
@@ -16,46 +17,38 @@ OsmAnd::ObfMapObjectsProvider::~ObfMapObjectsProvider()
 {
 }
 
-bool OsmAnd::ObfMapObjectsProvider::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<IMapObjectsProvider::Data>& outTiledData,
-    std::shared_ptr<Metric>* pOutMetric /*= nullptr*/,
-    const IQueryController* const queryController /*= nullptr*/)
+bool OsmAnd::ObfMapObjectsProvider::supportsNaturalObtainData() const
 {
-    if (pOutMetric)
-    {
-        if (!pOutMetric->get() || !dynamic_cast<ObfMapObjectsProvider_Metrics::Metric_obtainData*>(pOutMetric->get()))
-            pOutMetric->reset(new ObfMapObjectsProvider_Metrics::Metric_obtainData());
-        else
-            pOutMetric->get()->reset();
-    }
-
-    std::shared_ptr<Data> tiledData;
-    const auto result = _p->obtainData(
-        tileId,
-        zoom,
-        tiledData,
-        pOutMetric ? static_cast<ObfMapObjectsProvider_Metrics::Metric_obtainData*>(pOutMetric->get()) : nullptr,
-        queryController);
-    outTiledData = tiledData;
-
-    return result;
-}
-
-OsmAnd::IMapDataProvider::SourceType OsmAnd::ObfMapObjectsProvider::getSourceType() const
-{
-    return IMapDataProvider::SourceType::LocalDirect;
+    return true;
 }
 
 bool OsmAnd::ObfMapObjectsProvider::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<Data>& outTiledData,
-    ObfMapObjectsProvider_Metrics::Metric_obtainData* const metric,
-    const IQueryController* const queryController)
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
 {
-    return _p->obtainData(tileId, zoom, outTiledData, metric, queryController);
+    return _p->obtainData(request, outData, pOutMetric);
+}
+
+bool OsmAnd::ObfMapObjectsProvider::supportsNaturalObtainDataAsync() const
+{
+    return false;
+}
+
+void OsmAnd::ObfMapObjectsProvider::obtainDataAsync(
+    const IMapDataProvider::Request& request,
+    const IMapDataProvider::ObtainDataAsyncCallback callback,
+    const bool collectMetric /*= false*/)
+{
+    MapDataProviderHelpers::nonNaturalObtainDataAsync(this, request, callback, collectMetric);
+}
+
+bool OsmAnd::ObfMapObjectsProvider::obtainTiledObfMapObjects(
+    const Request& request,
+    std::shared_ptr<Data>& outMapObjects,
+    ObfMapObjectsProvider_Metrics::Metric_obtainData* const metric /*= nullptr*/)
+{
+    return _p->obtainTiledObfMapObjects(request, outMapObjects, metric);
 }
 
 OsmAnd::ZoomLevel OsmAnd::ObfMapObjectsProvider::getMinZoom() const

@@ -4,6 +4,9 @@
 #include "QtExtensions.h"
 #include <QStandardPaths>
 
+#include "OsmAndCore.h"
+#include "MapDataProviderHelpers.h"
+
 OsmAnd::OnlineRasterMapLayerProvider::OnlineRasterMapLayerProvider(
     const QString& name_,
     const QString& urlPattern_,
@@ -50,23 +53,6 @@ void OsmAnd::OnlineRasterMapLayerProvider::setNetworkAccessPermission(bool allow
     _p->_networkAccessAllowed = allowed;
 }
 
-bool OsmAnd::OnlineRasterMapLayerProvider::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<IMapTiledDataProvider::Data>& outTiledData,
-    std::shared_ptr<Metric>* pOutMetric /*= nullptr*/,
-    const IQueryController* const queryController /*= nullptr*/)
-{
-    if (pOutMetric)
-        pOutMetric->reset();
-
-    std::shared_ptr<OnlineRasterMapLayerProvider::Data> tiledData;
-    const auto result = _p->obtainData(tileId, zoom, tiledData, queryController);
-    outTiledData = tiledData;
-
-    return result;
-}
-
 OsmAnd::MapStubStyle OsmAnd::OnlineRasterMapLayerProvider::getDesiredStubsStyle() const
 {
     return MapStubStyle::Unspecified;
@@ -82,6 +68,32 @@ uint32_t OsmAnd::OnlineRasterMapLayerProvider::getTileSize() const
     return tileSize;
 }
 
+bool OsmAnd::OnlineRasterMapLayerProvider::supportsNaturalObtainData() const
+{
+    return true;
+}
+
+bool OsmAnd::OnlineRasterMapLayerProvider::obtainData(
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
+{
+    return _p->obtainData(request, outData, pOutMetric);
+}
+
+bool OsmAnd::OnlineRasterMapLayerProvider::supportsNaturalObtainDataAsync() const
+{
+    return true;
+}
+
+void OsmAnd::OnlineRasterMapLayerProvider::obtainDataAsync(
+    const IMapDataProvider::Request& request,
+    const IMapDataProvider::ObtainDataAsyncCallback callback,
+    const bool collectMetric /*= false*/)
+{
+    MapDataProviderHelpers::nonNaturalObtainDataAsync(this, request, callback, collectMetric);
+}
+
 OsmAnd::ZoomLevel OsmAnd::OnlineRasterMapLayerProvider::getMinZoom() const
 {
     return minZoom;
@@ -90,9 +102,4 @@ OsmAnd::ZoomLevel OsmAnd::OnlineRasterMapLayerProvider::getMinZoom() const
 OsmAnd::ZoomLevel OsmAnd::OnlineRasterMapLayerProvider::getMaxZoom() const
 {
     return maxZoom;
-}
-
-OsmAnd::IMapDataProvider::SourceType OsmAnd::OnlineRasterMapLayerProvider::getSourceType() const
-{
-    return IMapDataProvider::SourceType::NetworkDirect;
 }

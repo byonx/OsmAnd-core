@@ -1,6 +1,7 @@
 #include "MapObjectsSymbolsProvider.h"
 #include "MapObjectsSymbolsProvider_P.h"
 
+#include "MapDataProviderHelpers.h"
 #include "MapPrimitivesProvider.h"
 #include "SymbolRasterizer.h"
 
@@ -19,45 +20,6 @@ OsmAnd::MapObjectsSymbolsProvider::~MapObjectsSymbolsProvider()
 {
 }
 
-bool OsmAnd::MapObjectsSymbolsProvider::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<IMapTiledSymbolsProvider::Data>& outTiledData,
-    std::shared_ptr<Metric>* pOutMetric /*= nullptr*/,
-    const IQueryController* const queryController /*= nullptr*/,
-    const FilterCallback filterCallback /*= nullptr*/)
-{
-    if (pOutMetric)
-        pOutMetric->reset();
-
-    std::shared_ptr<Data> tiledData;
-    const auto result = _p->obtainData(tileId, zoom, tiledData, queryController, filterCallback);
-    outTiledData = tiledData;
-
-    return result;
-}
-
-OsmAnd::IMapDataProvider::SourceType OsmAnd::MapObjectsSymbolsProvider::getSourceType() const
-{
-    const auto underlyingSourceType = primitivesProvider->getSourceType();
-
-    switch (underlyingSourceType)
-    {
-        case IMapDataProvider::SourceType::LocalDirect:
-        case IMapDataProvider::SourceType::LocalGenerated:
-            return IMapDataProvider::SourceType::LocalGenerated;
-
-        case IMapDataProvider::SourceType::NetworkDirect:
-        case IMapDataProvider::SourceType::NetworkGenerated:
-            return IMapDataProvider::SourceType::NetworkGenerated;
-
-        case IMapDataProvider::SourceType::MiscDirect:
-        case IMapDataProvider::SourceType::MiscGenerated:
-        default:
-            return IMapDataProvider::SourceType::MiscGenerated;
-    }
-}
-
 OsmAnd::ZoomLevel OsmAnd::MapObjectsSymbolsProvider::getMinZoom() const
 {
     return primitivesProvider->getMinZoom();
@@ -66,6 +28,33 @@ OsmAnd::ZoomLevel OsmAnd::MapObjectsSymbolsProvider::getMinZoom() const
 OsmAnd::ZoomLevel OsmAnd::MapObjectsSymbolsProvider::getMaxZoom() const
 {
     return primitivesProvider->getMaxZoom();
+}
+
+
+bool OsmAnd::MapObjectsSymbolsProvider::supportsNaturalObtainData() const
+{
+    return true;
+}
+
+bool OsmAnd::MapObjectsSymbolsProvider::obtainData(
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
+{
+    return _p->obtainData(request, outData, pOutMetric);
+}
+
+bool OsmAnd::MapObjectsSymbolsProvider::supportsNaturalObtainDataAsync() const
+{
+    return false;
+}
+
+void OsmAnd::MapObjectsSymbolsProvider::obtainDataAsync(
+    const IMapDataProvider::Request& request,
+    const IMapDataProvider::ObtainDataAsyncCallback callback,
+    const bool collectMetric /*= false*/)
+{
+    MapDataProviderHelpers::nonNaturalObtainDataAsync(this, request, callback, collectMetric);
 }
 
 OsmAnd::MapObjectsSymbolsProvider::Data::Data(

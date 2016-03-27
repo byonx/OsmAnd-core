@@ -23,11 +23,11 @@ QList<OsmAnd::IMapKeyedSymbolsProvider::Key> OsmAnd::FavoriteLocationsPresenter_
 }
 
 bool OsmAnd::FavoriteLocationsPresenter_P::obtainData(
-    const IMapKeyedDataProvider::Key key,
-    std::shared_ptr<IMapKeyedDataProvider::Data>& outKeyedData,
-    const IQueryController* const queryController)
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric)
 {
-    return _markersCollection->obtainData(key, outKeyedData, nullptr, queryController);
+    return _markersCollection->obtainData(request, outData, pOutMetric);
 }
 
 void OsmAnd::FavoriteLocationsPresenter_P::subscribeToChanges()
@@ -74,7 +74,7 @@ void OsmAnd::FavoriteLocationsPresenter_P::syncFavoriteLocationMarkers()
 
     // Create markers for all new favorite locations
     MapMarkerBuilder markerBuilder;
-    markerBuilder.setBaseOrder(std::numeric_limits<int>::max() - 1);
+    markerBuilder.setBaseOrder(0);
     markerBuilder.setIsAccuracyCircleSupported(false);
     markerBuilder.setPinIcon(
         owner->favoriteLocationPinIconBitmap

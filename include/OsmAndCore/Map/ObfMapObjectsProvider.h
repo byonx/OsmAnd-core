@@ -20,7 +20,7 @@ namespace OsmAnd
     class IObfsCollection;
 
     class ObfMapObjectsProvider_P;
-    class OSMAND_CORE_API ObfMapObjectsProvider : public IMapObjectsProvider
+    class OSMAND_CORE_API ObfMapObjectsProvider Q_DECL_FINAL : public IMapObjectsProvider
     {
         Q_DISABLE_COPY_AND_MOVE(ObfMapObjectsProvider);
     public:
@@ -46,21 +46,22 @@ namespace OsmAnd
         virtual ZoomLevel getMinZoom() const;
         virtual ZoomLevel getMaxZoom() const;
 
+        virtual bool supportsNaturalObtainData() const Q_DECL_OVERRIDE;
         virtual bool obtainData(
-            const TileId tileId,
-            const ZoomLevel zoom,
-            std::shared_ptr<IMapObjectsProvider::Data>& outTiledData,
-            std::shared_ptr<Metric>* pOutMetric = nullptr,
-            const IQueryController* const queryController = nullptr);
+            const IMapDataProvider::Request& request,
+            std::shared_ptr<IMapDataProvider::Data>& outData,
+            std::shared_ptr<Metric>* const pOutMetric = nullptr) Q_DECL_OVERRIDE;
 
-        bool obtainData(
-            const TileId tileId,
-            const ZoomLevel zoom,
-            std::shared_ptr<Data>& outTiledData,
-            ObfMapObjectsProvider_Metrics::Metric_obtainData* const metric,
-            const IQueryController* const queryController);
+        virtual bool supportsNaturalObtainDataAsync() const Q_DECL_OVERRIDE;
+        virtual void obtainDataAsync(
+            const IMapDataProvider::Request& request,
+            const IMapDataProvider::ObtainDataAsyncCallback callback,
+            const bool collectMetric = false) Q_DECL_OVERRIDE;
 
-        virtual SourceType getSourceType() const;
+        bool obtainTiledObfMapObjects(
+            const Request& request,
+            std::shared_ptr<Data>& outMapObjects,
+            ObfMapObjectsProvider_Metrics::Metric_obtainData* const metric = nullptr);
     };
 }
 

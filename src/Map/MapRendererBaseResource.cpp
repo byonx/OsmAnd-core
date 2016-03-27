@@ -2,13 +2,10 @@
 
 OsmAnd::MapRendererBaseResource::MapRendererBaseResource(
     MapRendererResourcesManager* const owner_,
-    const MapRendererResourceType type_,
-    const IMapDataProvider::SourceType sourceType_)
+    const MapRendererResourceType type_)
     : _isJunk(false)
-    , _requestTask(nullptr)
     , resourcesManager(owner_)
     , type(type_)
-    , sourceType(sourceType_)
     , isJunk(_isJunk)
 {
 }

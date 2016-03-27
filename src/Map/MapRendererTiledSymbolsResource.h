@@ -26,7 +26,6 @@ namespace OsmAnd
     protected:
         MapRendererTiledSymbolsResource(
             MapRendererResourcesManager* owner,
-            const IMapDataProvider::SourceType sourceType,
             const TiledEntriesCollection<MapRendererBaseTiledResource>& collection,
             const TileId tileId,
             const ZoomLevel zoom);
@@ -66,11 +65,18 @@ namespace OsmAnd
         mutable QReadWriteLock _symbolToResourceInGpuLUTLock;
         QHash< std::shared_ptr<const MapSymbol>, std::shared_ptr<const GPUAPI::ResourceInGPU> > _symbolToResourceInGpuLUT;
 
-        virtual bool obtainData(bool& dataAvailable, const IQueryController* queryController);
-        virtual bool uploadToGPU();
-        virtual void unloadFromGPU();
-        virtual void lostDataInGPU();
-        virtual void releaseData();
+        virtual bool supportsObtainDataAsync() const Q_DECL_OVERRIDE;
+        virtual bool obtainData(
+            bool& dataAvailable,
+            const std::shared_ptr<const IQueryController>& queryController) Q_DECL_OVERRIDE;
+        virtual void obtainDataAsync(
+            const ObtainDataAsyncCallback callback,
+            const std::shared_ptr<const IQueryController>& queryController) Q_DECL_OVERRIDE;
+
+        virtual bool uploadToGPU() Q_DECL_OVERRIDE;
+        virtual void unloadFromGPU() Q_DECL_OVERRIDE;
+        virtual void lostDataInGPU() Q_DECL_OVERRIDE;
+        virtual void releaseData() Q_DECL_OVERRIDE;
 
         void unloadFromGPU(const bool gpuContextLost);
     public:

@@ -13,10 +13,9 @@
 
 OsmAnd::MapRendererKeyedSymbolsResource::MapRendererKeyedSymbolsResource(
     MapRendererResourcesManager* owner_,
-    const IMapDataProvider::SourceType sourceType_,
     const KeyedEntriesCollection<Key, MapRendererBaseKeyedResource>& collection_,
     const Key key_)
-    : MapRendererBaseKeyedResource(owner_, MapRendererResourceType::Symbols, sourceType_, collection_, key_)
+    : MapRendererBaseKeyedResource(owner_, MapRendererResourceType::Symbols, collection_, key_)
 {
 }
 
@@ -51,7 +50,14 @@ bool OsmAnd::MapRendererKeyedSymbolsResource::checkForUpdatesAndApply()
     return updatesApplied;
 }
 
-bool OsmAnd::MapRendererKeyedSymbolsResource::obtainData(bool& dataAvailable, const IQueryController* queryController)
+bool OsmAnd::MapRendererKeyedSymbolsResource::supportsObtainDataAsync() const
+{
+    return false;
+}
+
+bool OsmAnd::MapRendererKeyedSymbolsResource::obtainData(
+    bool& dataAvailable,
+    const std::shared_ptr<const IQueryController>& queryController)
 {
     // Obtain collection link and maintain it
     const auto link_ = link.lock();
@@ -68,7 +74,10 @@ bool OsmAnd::MapRendererKeyedSymbolsResource::obtainData(bool& dataAvailable, co
 
     // Obtain source data from provider
     std::shared_ptr<IMapKeyedDataProvider::Data> keyedData;
-    const auto requestSucceeded = provider->obtainData(key, keyedData);
+    IMapKeyedSymbolsProvider::Request request;
+    request.key = key;
+    request.queryController = queryController;
+    const auto requestSucceeded = provider->obtainKeyedData(request, keyedData);
     if (!requestSucceeded)
         return false;
 
@@ -109,6 +118,12 @@ bool OsmAnd::MapRendererKeyedSymbolsResource::obtainData(bool& dataAvailable, co
     resourcesManager->batchPublishMapSymbols(mapSymbolsToPublish);
 
     return true;
+}
+
+void OsmAnd::MapRendererKeyedSymbolsResource::obtainDataAsync(
+    const ObtainDataAsyncCallback callback,
+    const std::shared_ptr<const IQueryController>& queryController)
+{
 }
 
 bool OsmAnd::MapRendererKeyedSymbolsResource::uploadToGPU()
@@ -181,20 +196,24 @@ void OsmAnd::MapRendererKeyedSymbolsResource::lostDataInGPU()
 
 void OsmAnd::MapRendererKeyedSymbolsResource::releaseData()
 {
-    // Unregister all obtained symbols
     const auto self = shared_from_this();
-    QList< PublishOrUnpublishMapSymbol > mapSymbolsToUnpublish;
-    mapSymbolsToUnpublish.reserve(_mapSymbolsGroup->symbols.size());
-    for (const auto& symbol : constOf(_mapSymbolsGroup->symbols))
-    {
-        PublishOrUnpublishMapSymbol mapSymbolToUnpublish = {
-            _mapSymbolsGroup,
-            std::static_pointer_cast<const MapSymbol>(symbol),
-            self };
-        mapSymbolsToUnpublish.push_back(mapSymbolToUnpublish);
-    }
-    resourcesManager->batchUnpublishMapSymbols(mapSymbolsToUnpublish);
 
+    // Unregister all obtained symbols, if it was ever published.
+    if (_mapSymbolsGroup)
+    {
+        QList<PublishOrUnpublishMapSymbol> mapSymbolsToUnpublish;
+        mapSymbolsToUnpublish.reserve(_mapSymbolsGroup->symbols.size());
+        for (const auto &symbol : constOf(_mapSymbolsGroup->symbols))
+        {
+            PublishOrUnpublishMapSymbol mapSymbolToUnpublish = {
+                _mapSymbolsGroup,
+                std::static_pointer_cast<const MapSymbol>(symbol),
+                self
+            };
+            mapSymbolsToUnpublish.push_back(mapSymbolToUnpublish);
+        }
+        resourcesManager->batchUnpublishMapSymbols(mapSymbolsToUnpublish);
+    }
     _mapSymbolsGroup.reset();
 
     _retainableCacheMetadata.reset();

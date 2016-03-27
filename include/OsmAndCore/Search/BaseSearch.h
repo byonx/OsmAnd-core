@@ -19,10 +19,6 @@ namespace OsmAnd
     private:
     protected:
         BaseSearch(const std::shared_ptr<const IObfsCollection>& obfsCollection);
-
-        std::shared_ptr<ObfDataInterface> obtainDataInterface(
-            const Criteria& criteria,
-            const ObfDataTypesMask desiredDataTypes) const;
     public:
         virtual ~BaseSearch();
 
@@ -34,7 +30,7 @@ namespace OsmAnd
             const NewResultEntryCallback newResultEntryCallback,
             const SearchCompletedCallback searchCompletedCallback,
             QThreadPool* const threadPool,
-            const IQueryController* const controller = nullptr) const;
+            const std::shared_ptr<const IQueryController>& queryController = nullptr) const;
     };
 }
 

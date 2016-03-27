@@ -19,16 +19,26 @@ namespace OsmAnd
         T _value;
         bool _isSet;
     public:
-        inline Nullable()
-            : _isSet(false)
+        inline Nullable(const T* const pValue = nullptr)
+            : _isSet(pValue != nullptr)
         {
+            if (pValue != nullptr)
+                _value = *pValue;
         }
 
-        inline Nullable(const T& value_)
-            : _value(value_)
+        inline Nullable(const T& value)
+            : _value(value)
             , _isSet(true)
         {
         }
+
+#ifdef Q_COMPILER_RVALUE_REFS
+        inline Nullable(T&& value)
+            : _value(qMove(value))
+            , _isSet(true)
+        {
+        }
+#endif // Q_COMPILER_RVALUE_REFS
 
         inline Nullable(const NullableT& that)
             : _isSet(that._isSet)
@@ -36,6 +46,17 @@ namespace OsmAnd
             if (_isSet)
                 _value = that._value;
         }
+
+#ifdef Q_COMPILER_RVALUE_REFS
+        inline Nullable(NullableT&& that)
+            : _isSet(that._isSet)
+        {
+            if (_isSet)
+                _value = qMove(that._value);
+
+            that._isSet = false;
+        }
+#endif // Q_COMPILER_RVALUE_REFS
 
         inline ~Nullable()
         {
@@ -67,6 +88,21 @@ namespace OsmAnd
             return *this;
         }
 
+#ifdef Q_COMPILER_RVALUE_REFS
+        inline NullableT& operator=(NullableT&& that)
+        {
+            if (this != &that)
+            {
+                _isSet = that._isSet;
+                if (_isSet)
+                    _value = qMove(that._value);
+
+                that._isSet = false;
+            }
+            return *this;
+        }
+#endif // Q_COMPILER_RVALUE_REFS
+
         inline NullableT& operator=(const T& value)
         {
             _isSet = true;
@@ -74,7 +110,16 @@ namespace OsmAnd
             return *this;
         }
 
-        inline operator bool() const
+#ifdef Q_COMPILER_RVALUE_REFS
+        inline NullableT& operator=(T&& value)
+        {
+            _isSet = true;
+            _value = qMove(value);
+            return *this;
+        }
+#endif // Q_COMPILER_RVALUE_REFS
+
+        explicit inline operator bool() const
         {
             return _isSet;
         }

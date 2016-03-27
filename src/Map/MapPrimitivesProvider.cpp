@@ -1,6 +1,8 @@
 #include "MapPrimitivesProvider.h"
 #include "MapPrimitivesProvider_P.h"
 
+#include "MapDataProviderHelpers.h"
+
 OsmAnd::MapPrimitivesProvider::MapPrimitivesProvider(
     const std::shared_ptr<IMapObjectsProvider>& mapObjectsProvider_,
     const std::shared_ptr<MapPrimitiviser>& primitiviser_,
@@ -28,61 +30,38 @@ OsmAnd::ZoomLevel OsmAnd::MapPrimitivesProvider::getMaxZoom() const
     return mapObjectsProvider->getMaxZoom();
 }
 
-bool OsmAnd::MapPrimitivesProvider::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<IMapTiledDataProvider::Data>& outTiledData,
-    std::shared_ptr<Metric>* pOutMetric /*= nullptr*/,
-    const IQueryController* const queryController /*= nullptr*/)
+bool OsmAnd::MapPrimitivesProvider::obtainTiledPrimitives(
+    const Request& request,
+    std::shared_ptr<Data>& outTiledPrimitives,
+    MapPrimitivesProvider_Metrics::Metric_obtainData* metric /*= nullptr*/)
 {
-    if (pOutMetric)
-    {
-        if (!pOutMetric->get() || !dynamic_cast<MapPrimitivesProvider_Metrics::Metric_obtainData*>(pOutMetric->get()))
-            pOutMetric->reset(new MapPrimitivesProvider_Metrics::Metric_obtainData());
-        else
-            pOutMetric->get()->reset();
-    }
-
-    std::shared_ptr<Data> tiledData;
-    const auto result = _p->obtainData(
-        tileId,
-        zoom,
-        tiledData,
-        pOutMetric ? static_cast<MapPrimitivesProvider_Metrics::Metric_obtainData*>(pOutMetric->get()) : nullptr,
-        queryController);
-    outTiledData = tiledData;
-    return result;
+    return _p->obtainTiledPrimitives(request, outTiledPrimitives, metric);
 }
 
-OsmAnd::IMapDataProvider::SourceType OsmAnd::MapPrimitivesProvider::getSourceType() const
+bool OsmAnd::MapPrimitivesProvider::supportsNaturalObtainData() const
 {
-    const auto underlyingSourceType = mapObjectsProvider->getSourceType();
-
-    switch (underlyingSourceType)
-    {
-        case IMapDataProvider::SourceType::LocalDirect:
-        case IMapDataProvider::SourceType::LocalGenerated:
-            return IMapDataProvider::SourceType::LocalGenerated;
-
-        case IMapDataProvider::SourceType::NetworkDirect:
-        case IMapDataProvider::SourceType::NetworkGenerated:
-            return IMapDataProvider::SourceType::NetworkGenerated;
-
-        case IMapDataProvider::SourceType::MiscDirect:
-        case IMapDataProvider::SourceType::MiscGenerated:
-        default:
-            return IMapDataProvider::SourceType::MiscGenerated;
-    }
+    return true;
 }
 
 bool OsmAnd::MapPrimitivesProvider::obtainData(
-    const TileId tileId,
-    const ZoomLevel zoom,
-    std::shared_ptr<Data>& outTiledData,
-    MapPrimitivesProvider_Metrics::Metric_obtainData* const metric,
-    const IQueryController* const queryController)
+    const IMapDataProvider::Request& request,
+    std::shared_ptr<IMapDataProvider::Data>& outData,
+    std::shared_ptr<Metric>* const pOutMetric /*= nullptr*/)
 {
-    return _p->obtainData(tileId, zoom, outTiledData, metric, queryController);
+    return _p->obtainData(request, outData, pOutMetric);
+}
+
+bool OsmAnd::MapPrimitivesProvider::supportsNaturalObtainDataAsync() const
+{
+    return false;
+}
+
+void OsmAnd::MapPrimitivesProvider::obtainDataAsync(
+    const IMapDataProvider::Request& request,
+    const IMapDataProvider::ObtainDataAsyncCallback callback,
+    const bool collectMetric /*= false*/)
+{
+    MapDataProviderHelpers::nonNaturalObtainDataAsync(this, request, callback, collectMetric);
 }
 
 OsmAnd::MapPrimitivesProvider::Data::Data(

@@ -110,24 +110,16 @@ namespace OsmAnd
             const Context& context,
             const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects,
             const QList< std::shared_ptr<const OsmAnd::MapObject> >& source,
-#ifdef Q_COMPILER_RVALUE_REFS
-            MapStyleEvaluationResult&& evaluationResult,
-#else
             MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
             const std::shared_ptr<Cache>& cache,
-            const IQueryController* const controller,
+            const std::shared_ptr<const IQueryController>& queryController,
             MapPrimitiviser_Metrics::Metric_primitivise* const metric);
 
         static std::shared_ptr<const PrimitivesGroup> obtainPrimitivesGroup(
             const Context& context,
             const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects,
             const std::shared_ptr<const MapObject>& mapObject,
-#ifdef Q_COMPILER_RVALUE_REFS
-            MapStyleEvaluationResult&& evaluationResult,
-#else
             MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
             MapStyleEvaluator& orderEvaluator,
             MapStyleEvaluator& polygonEvaluator,
             MapStyleEvaluator& polylineEvaluator,
@@ -136,91 +128,77 @@ namespace OsmAnd
 
         static void sortAndFilterPrimitives(
             const Context& context,
-            const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects);
+            const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects,
+            MapPrimitiviser_Metrics::Metric_primitivise* const metric);
 
         static void filterOutHighwaysByDensity(
             const Context& context,
-            const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects);
+            const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects,
+            MapPrimitiviser_Metrics::Metric_primitivise* const metric);
 
         static void obtainPrimitivesSymbols(
             const Context& context,
             const std::shared_ptr<PrimitivisedObjects>& primitivisedObjects,
-#ifdef Q_COMPILER_RVALUE_REFS
-            MapStyleEvaluationResult&& evaluationResult,
-#else
             MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
             const std::shared_ptr<Cache>& cache,
-            const IQueryController* const controller);
+            const std::shared_ptr<const IQueryController>& queryController,
+            MapPrimitiviser_Metrics::Metric_primitivise* const metric);
 
         static void collectSymbolsFromPrimitives(
             const Context& context,
             const std::shared_ptr<const PrimitivisedObjects>& primitivisedObjects,
             const PrimitivesCollection& primitives,
             const PrimitivesType type,
-#ifdef Q_COMPILER_RVALUE_REFS
-            MapStyleEvaluationResult&& evaluationResult,
-#else
             MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
+            MapStyleEvaluator& textEvaluator,
             SymbolsCollection& outSymbols,
-            const IQueryController* const controller);
+            const std::shared_ptr<const IQueryController>& queryController,
+            MapPrimitiviser_Metrics::Metric_primitivise* const metric);
 
         static void obtainSymbolsFromPolygon(
             const Context& context,
             const std::shared_ptr<const PrimitivisedObjects>& primitivisedObjects,
             const std::shared_ptr<const Primitive>& primitive,
-#ifdef Q_COMPILER_RVALUE_REFS
-            MapStyleEvaluationResult&& evaluationResult,
-#else
             MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
-            SymbolsCollection& outSymbols);
+            MapStyleEvaluator& textEvaluator,
+            SymbolsCollection& outSymbols,
+            MapPrimitiviser_Metrics::Metric_primitivise* const metric);
 
         static void obtainSymbolsFromPolyline(
             const Context& context,
             const std::shared_ptr<const PrimitivisedObjects>& primitivisedObjects,
             const std::shared_ptr<const Primitive>& primitive,
-#ifdef Q_COMPILER_RVALUE_REFS
-            MapStyleEvaluationResult&& evaluationResult,
-#else
             MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
-            SymbolsCollection& outSymbols);
+            MapStyleEvaluator& textEvaluator,
+            SymbolsCollection& outSymbols,
+            MapPrimitiviser_Metrics::Metric_primitivise* const metric);
 
         static void obtainSymbolsFromPoint(
             const Context& context,
             const std::shared_ptr<const PrimitivisedObjects>& primitivisedObjects,
             const std::shared_ptr<const Primitive>& primitive,
-#ifdef Q_COMPILER_RVALUE_REFS
-            MapStyleEvaluationResult&& evaluationResult,
-#else
             MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
-            SymbolsCollection& outSymbols);
+            MapStyleEvaluator& textEvaluator,
+            SymbolsCollection& outSymbols,
+            MapPrimitiviser_Metrics::Metric_primitivise* const metric);
 
         static void obtainPrimitiveTexts(
             const Context& context,
             const std::shared_ptr<const PrimitivisedObjects>& primitivisedObjects,
             const std::shared_ptr<const Primitive>& primitive,
             const PointI& location,
-#ifdef Q_COMPILER_RVALUE_REFS
-            MapStyleEvaluationResult&& evaluationResult,
-#else
             MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
-            SymbolsCollection& outSymbols);
+            MapStyleEvaluator& textEvaluator,
+            SymbolsCollection& outSymbols,
+            MapPrimitiviser_Metrics::Metric_primitivise* const metric);
 
         static void obtainPrimitiveIcon(
             const Context& context,
             const std::shared_ptr<const Primitive>& primitive,
             const PointI& location,
-#ifdef Q_COMPILER_RVALUE_REFS
-            MapStyleEvaluationResult&& evaluationResult,
-#else
             MapStyleEvaluationResult& evaluationResult,
-#endif // Q_COMPILER_RVALUE_REFS
-            SymbolsCollection& outSymbols);
+            SymbolsCollection& outSymbols,
+            MapPrimitiviser_Metrics::Metric_primitivise* const metric);
     public:
         ~MapPrimitiviser_P();
 
@@ -230,7 +208,7 @@ namespace OsmAnd
             const ZoomLevel zoom,
             const QList< std::shared_ptr<const MapObject> >& objects,
             const std::shared_ptr<Cache>& cache,
-            const IQueryController* const controller,
+            const std::shared_ptr<const IQueryController>& queryController,
             MapPrimitiviser_Metrics::Metric_primitiviseAllMapObjects* const metric);
 
         std::shared_ptr<PrimitivisedObjects> primitiviseAllMapObjects(
@@ -238,7 +216,7 @@ namespace OsmAnd
             const ZoomLevel zoom,
             const QList< std::shared_ptr<const MapObject> >& objects,
             const std::shared_ptr<Cache>& cache,
-            const IQueryController* const controller,
+            const std::shared_ptr<const IQueryController>& queryController,
             MapPrimitiviser_Metrics::Metric_primitiviseAllMapObjects* const metric);
 
         std::shared_ptr<PrimitivisedObjects> primitiviseWithSurface(
@@ -248,7 +226,7 @@ namespace OsmAnd
             const MapSurfaceType surfaceType,
             const QList< std::shared_ptr<const MapObject> >& objects,
             const std::shared_ptr<Cache>& cache,
-            const IQueryController* const controller,
+            const std::shared_ptr<const IQueryController>& queryController,
             MapPrimitiviser_Metrics::Metric_primitiviseWithSurface* const metric);
 
         std::shared_ptr<PrimitivisedObjects> primitiviseWithoutSurface(
@@ -256,7 +234,7 @@ namespace OsmAnd
             const ZoomLevel zoom,
             const QList< std::shared_ptr<const MapObject> >& objects,
             const std::shared_ptr<Cache>& cache,
-            const IQueryController* const controller,
+            const std::shared_ptr<const IQueryController>& queryController,
             MapPrimitiviser_Metrics::Metric_primitiviseWithoutSurface* const metric);
 
     friend class OsmAnd::MapPrimitiviser;
